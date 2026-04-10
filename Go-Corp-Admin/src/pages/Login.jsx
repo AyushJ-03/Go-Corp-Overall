@@ -1,8 +1,49 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { Mail, Lock, Chrome, Shield, Globe, Landmark, Building2, Trees } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Mail, Lock, Shield, Globe, Landmark, Building2, Trees } from 'lucide-react';
+import * as authAPI from '../services/authAPI';
 
 export default function Login() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const navigate = useNavigate();
+
+  // Redirect to dashboard if already logged in
+  useEffect(() => {
+    if (authAPI.isAuthenticated()) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      if (!email || !password) {
+        throw new Error('Please enter both email and password');
+      }
+
+      const data = await authAPI.loginUser(email, password);
+      
+      if (rememberMe) {
+        localStorage.setItem('rememberMe', 'true');
+      }
+      
+      // Redirect to dashboard on successful login
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err.message || 'Login failed. Please try again.');
+      setPassword('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white font-sans flex text-gray-900">
       {/* Left Side: Form Content */}
@@ -21,7 +62,13 @@ export default function Login() {
           <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-2">Welcome back!</h1>
           <p className="text-gray-500 mb-8 font-medium">Please enter your details to sign in.</p>
 
-          <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
+              <p className="text-sm font-bold text-red-700">{error}</p>
+            </div>
+          )}
+
+          <form className="space-y-6" onSubmit={handleLogin}>
             <div className="space-y-2">
               <label className="text-sm font-semibold text-gray-700" htmlFor="email">
                 Email
@@ -32,7 +79,10 @@ export default function Login() {
                   id="email"
                   type="email"
                   placeholder="name@gocorp.com"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium disabled:opacity-50"
                 />
               </div>
             </div>
@@ -50,39 +100,38 @@ export default function Login() {
                   id="password"
                   type="password"
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={loading}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium disabled:opacity-50"
                 />
               </div>
             </div>
 
             <div className="flex items-center gap-2 py-1">
-              <input type="checkbox" id="remember" className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <input 
+                type="checkbox" 
+                id="remember" 
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                disabled={loading}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50" 
+              />
               <label htmlFor="remember" className="text-sm font-medium text-gray-600">Remember me for 30 days</label>
             </div>
 
-            <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-500/20 transition-all active:scale-[0.98]">
-              Sign in to GoCorp
-            </button>
-
-            <div className="relative py-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-100"></div>
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-3 text-gray-400 font-bold tracking-widest">OR</span>
-              </div>
-            </div>
-
-            <button className="w-full bg-white hover:bg-gray-50 text-gray-700 font-bold py-3.5 rounded-xl border border-gray-200 flex items-center justify-center gap-3 transition-all active:scale-[0.98]">
-              <Chrome size={20} />
-              Sign in with Google
+            <button 
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-500/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Signing in...' : 'Sign in to GoCorp'}
             </button>
           </form>
 
-          <p className="mt-8 text-center text-sm text-gray-600 font-medium">
-            Don't have an account?{' '}
-            <Link to="/signup" className="text-blue-600 font-bold hover:underline">Create account</Link>
-          </p>
+          <div className="py-4 text-center text-sm text-gray-600 font-medium">
+            <p>Office Admin Access Only</p>
+          </div>
         </div>
 
         {/* Footer: Social Proof / Partner Logos */}

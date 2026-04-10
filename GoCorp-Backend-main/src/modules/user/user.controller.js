@@ -79,6 +79,11 @@ export const loginUser = async (req, res, next) => {
       throw new ApiError(401, "Invalid email or password");
     }
 
+    // Check if user role is OFFICE_ADMIN
+    if (user.role !== 'OFFICE_ADMIN') {
+      throw new ApiError(403, "Only OFFICE_ADMIN users can access this portal. Your role is: " + user.role);
+    }
+
     const token = await user.generateAuthToken();
 
     res.cookie('token', token);

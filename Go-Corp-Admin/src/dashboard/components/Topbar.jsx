@@ -1,11 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, Bell, Settings as SettingsIcon, ChevronDown, User, LogOut } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import * as authAPI from '../../services/authAPI';
 
 export default function Topbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const navigate = useNavigate();
+  const [userName, setUserName] = useState('Administrator');
+
+  useEffect(() => {
+    const user = authAPI.getCurrentUser();
+    if (user && user.name) {
+      setUserName(user.name.first_name + ' ' + user.name.last_name);
+    }
+  }, []);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -17,6 +26,18 @@ export default function Topbar() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await authAPI.logoutUser();
+      setIsMenuOpen(false);
+      navigate('/login', { replace: true });
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Still redirect to login even if there's an error
+      navigate('/login', { replace: true });
+    }
+  };
 
   return (
     <header className="h-20 flex items-center justify-between px-8 bg-transparent relative z-50">
@@ -63,8 +84,8 @@ export default function Topbar() {
               />
             </div>
             <div className="text-left hidden lg:block">
-              <p className="text-sm font-semibold text-gray-900">Natashia Khaleira</p>
-              <p className="text-[10px] text-gray-500">Administrator</p>
+              <p className="text-sm font-semibold text-gray-900">{userName}</p>
+              <p className="text-[10px] text-gray-500">Office Admin</p>
             </div>
             <ChevronDown 
               size={16} 
@@ -89,10 +110,7 @@ export default function Topbar() {
               <div className="h-[1px] bg-gray-100 my-1 mx-4" />
               
               <button 
-                onClick={() => {
-                  setIsMenuOpen(false);
-                  navigate('/login');
-                }}
+                onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors text-left"
               >
                 <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-600">

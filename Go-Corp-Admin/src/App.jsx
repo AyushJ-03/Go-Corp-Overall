@@ -13,19 +13,18 @@ import Booking from './dashboard/pages/Booking';
 import Schedule from './dashboard/pages/Schedule';
 import Finance from './dashboard/pages/Finance';
 import Login from './pages/Login';
-import Signup from './pages/Signup';
 import Profile from './dashboard/pages/Profile';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
     <Routes>
-      {/* Landing Page Route */}
+      {/* Landing Page Route - Public */}
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/signup" element={<Signup />} />
 
-      {/* Dashboard Routes */}
-      <Route path="/dashboard" element={<DashboardLayout />}>
+      {/* Dashboard Routes - Protected */}
+      <Route path="/dashboard" element={<ProtectedRoute element={<DashboardLayout />} />}>
         <Route index element={<Overview />} />
         <Route path="booking" element={<Booking />} />
         <Route path="schedule" element={<Schedule />} />
@@ -37,7 +36,7 @@ function App() {
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
         <Route path="finance" element={<Finance />} />
-        <Route path="help" element={<Overview />} /> {/* Default to overview for now */}
+        <Route path="help" element={<Overview />} />
       </Route>
     </Routes>
   );

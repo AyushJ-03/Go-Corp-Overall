@@ -9,6 +9,7 @@ import rideRequestRoutes from "./src/modules/ride/ride.routes.js";
 import driverRoutes from "./src/modules/driver/driver.routes.js";
 import mapsRoutes from "./src/modules/maps/maps.routes.js";
 import pollingRoutes from "./src/modules/polling/polling.routes.js";
+import walletRoutes from "./src/modules/wallet/wallet.routes.js";
 import { initForceBatchJob, initCleanupJob } from "./src/modules/polling/polling.jobs.js";
 import cookieParser from "cookie-parser";
 
@@ -34,6 +35,7 @@ app.use("/api/ride", rideRequestRoutes);
 app.use("/api/maps", mapsRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/polling", pollingRoutes);
+app.use("/api/wallet", walletRoutes);
 
 app.use((req, res, next) => {
   console.log(`[404] Not Found: ${req.method} ${req.originalUrl}`);

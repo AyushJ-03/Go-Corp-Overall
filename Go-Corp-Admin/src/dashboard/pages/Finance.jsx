@@ -1,50 +1,149 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, 
   Lock, 
   Plus, 
   ArrowUpRight, 
   ArrowDownLeft,
-  TrendingUp,
-  Calendar,
   Download,
   Filter,
   ChevronRight
 } from 'lucide-react';
 import StatsCard from '../components/StatsCard';
+import * as walletAPI from '../../services/walletAPI';
 
 export default function Finance() {
   const [showAddFund, setShowAddFund] = useState(false);
   const [fundAmount, setFundAmount] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [wallet, setWallet] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const financialStats = [
-    { title: 'Total Balance', value: '₹1,24,580', icon: DollarSign, trend: 'up', percentage: 15, color: 'green' },
-    { title: 'Blocked Amount', value: '₹12,400', icon: Lock, trend: 'down', percentage: 5, color: 'red' },
-  ];
+  // Get office ID from localStorage (set during login/auth)
+  const officeId = localStorage.getItem('officeId') || '6781b4d1e8b6c1234567890a';
 
-  const recentTransactions = [
-    { id: 1, date: '2026-04-10', type: 'Credit', description: 'Ride Earnings - Route #1245', amount: 450, status: 'Completed' },
-    { id: 2, date: '2026-04-10', type: 'Debit', description: 'Withdrawal to Bank Account', amount: -5000, status: 'Processing' },
-    { id: 3, date: '2026-04-09', type: 'Credit', description: 'Bonus Incentive', amount: 1000, status: 'Completed' },
-    { id: 4, date: '2026-04-09', type: 'Debit', description: 'Commission Charge', amount: -250, status: 'Completed' },
-    { id: 5, date: '2026-04-08', type: 'Credit', description: 'Ride Earnings - Route #1198', amount: 680, status: 'Completed' },
-    { id: 6, date: '2026-04-08', type: 'Credit', description: 'Referral Bonus', amount: 500, status: 'Completed' },
-    { id: 7, date: '2026-04-07', type: 'Debit', description: 'Wallet Maintenance Fee', amount: -50, status: 'Completed' },
-    { id: 8, date: '2026-04-07', type: 'Credit', description: 'Weekend Bonus', amount: 2000, status: 'Completed' },
-  ];
+  useEffect(() => {
+    fetchWalletData();
+  }, []);
 
-  const handleAddFund = (e) => {
-    e.preventDefault();
-    if (fundAmount) {
-      console.log('Adding fund:', fundAmount);
-      setFundAmount('');
-      setShowAddFund(false);
-      // Here you would typically call an API to add funds
+  const fetchWalletData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const walletData = await walletAPI.getWallet(officeId);
+      const transactionsData = await walletAPI.getTransactions(officeId);
+      setWallet(walletData);
+      setTransactions(transactionsData);
+    } catch (err) {
+      setError(err.message || 'Failed to fetch wallet data');
+      console.error('Error fetching wallet data:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
+  const financialStats = [
+    { 
+      title: 'Total Balance', 
+      value: wallet ? `₹${wallet.balance?.toLocaleString() || 0}` : '₹0', 
+      icon: DollarSign, 
+      trend: 'up', 
+      percentage: 15, 
+      color: 'green' 
+    },
+    { 
+      title: 'Blocked Amount', 
+      value: wallet ? `₹${wallet.blockedBalance?.toLocaleString() || 0}` : '₹0', 
+      icon: Lock, 
+      trend: 'down', 
+      percentage: 5, 
+      color: 'red' 
+    },
+  ];
+
+  // Calculate monthly totals
+  const monthlyTotals = {
+    received: transactions
+      .filter(t => t.type === 'CREDIT')
+      .reduce((sum, t) => sum + t.amount, 0),
+    paid: transactions
+      .filter(t => t.type === 'DEBIT')
+      .reduce((sum, t) => sum + Math.abs(t.amount), 0),
+  };
+
+  const handleAddFund = async (e) => {
+    e.preventDefault();
+    if (!fundAmount || isNaN(fundAmount) || parseFloat(fundAmount) <= 0) {
+      setError('Please enter a valid amount');
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      setError(null);
+      await walletAPI.addMoney(officeId, parseFloat(fundAmount));
+      
+      // Refresh wallet data
+      await fetchWalletData();
+      
+      setFundAmount('');
+      setShowAddFund(false);
+      // Show success message (you can add a toast notification here)
+      console.log('Funds added successfully');
+    } catch (err) {
+      setError(err.message || 'Failed to add funds');
+      console.error('Error adding funds:', err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const formatTransactionType = (type) => {
+    const typeMap = {
+      'CREDIT': 'Credit',
+      'DEBIT': 'Debit',
+      'BLOCK': 'Blocked',
+    };
+    return typeMap[type] || type;
+  };
+
+  const getStatusBadgeColor = (status) => {
+    switch(status?.toUpperCase()) {
+      case 'COMPLETED':
+        return 'bg-green-100 text-green-700';
+      case 'PROCESSING':
+        return 'bg-yellow-100 text-yellow-700';
+      case 'FAILED':
+        return 'bg-red-100 text-red-700';
+      default:
+        return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+        <div className="flex justify-center items-center h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-dash-blue mx-auto mb-4"></div>
+            <p className="text-dash-text font-bold">Loading wallet data...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Error Alert */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+          <p className="text-sm font-bold text-red-700">{error}</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
@@ -90,6 +189,7 @@ export default function Finance() {
                 placeholder="Enter amount to add"
                 className="w-full px-4 py-3 border border-dash-border rounded-xl focus:outline-none focus:ring-2 focus:ring-dash-blue text-dash-text placeholder-dash-muted font-bold"
                 required
+                disabled={isProcessing}
               />
             </div>
 
@@ -99,7 +199,8 @@ export default function Finance() {
                   key={amount}
                   type="button"
                   onClick={() => setFundAmount(amount.toString())}
-                  className="py-3 px-4 bg-dash-bg hover:bg-dash-blue hover:text-white text-dash-text font-bold rounded-xl transition-all border border-dash-border"
+                  disabled={isProcessing}
+                  className="py-3 px-4 bg-dash-bg hover:bg-dash-blue hover:text-white text-dash-text font-bold rounded-xl transition-all border border-dash-border disabled:opacity-50"
                 >
                   ₹{amount}
                 </button>
@@ -115,14 +216,16 @@ export default function Finance() {
             <div className="flex gap-4">
               <button 
                 type="submit"
-                className="flex-1 bg-dash-blue text-white py-3 rounded-xl font-bold hover:bg-blue-600 transition-all"
+                disabled={isProcessing}
+                className="flex-1 bg-dash-blue text-white py-3 rounded-xl font-bold hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Continue to Payment
+                {isProcessing ? 'Processing...' : 'Continue to Payment'}
               </button>
               <button 
                 type="button"
                 onClick={() => setShowAddFund(false)}
-                className="flex-1 bg-dash-bg text-dash-text py-3 rounded-xl font-bold hover:bg-gray-200 transition-all"
+                disabled={isProcessing}
+                className="flex-1 bg-dash-bg text-dash-text py-3 rounded-xl font-bold hover:bg-gray-200 transition-all disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -141,7 +244,7 @@ export default function Finance() {
             <span className="text-xs font-bold text-green-600 bg-white px-3 py-1 rounded-lg">This Month</span>
           </div>
           <p className="text-dash-muted text-sm font-bold">Total Received</p>
-          <p className="text-2xl font-bold text-green-600 mt-2">₹14,230</p>
+          <p className="text-2xl font-bold text-green-600 mt-2">₹{monthlyTotals.received.toLocaleString()}</p>
         </div>
 
         <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-[2.5rem] p-6 border border-red-200 shadow-sm">
@@ -152,7 +255,7 @@ export default function Finance() {
             <span className="text-xs font-bold text-red-600 bg-white px-3 py-1 rounded-lg">This Month</span>
           </div>
           <p className="text-dash-muted text-sm font-bold">Total Paid Out</p>
-          <p className="text-2xl font-bold text-red-600 mt-2">₹5,250</p>
+          <p className="text-2xl font-bold text-red-600 mt-2">₹{monthlyTotals.paid.toLocaleString()}</p>
         </div>
 
         <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-[2.5rem] p-6 border border-blue-200 shadow-sm">
@@ -181,71 +284,81 @@ export default function Finance() {
         </div>
 
         <div className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm border border-dash-border">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-dash-bg border-b border-dash-border">
-                <tr>
-                  <th className="px-8 py-4 text-left text-xs font-bold text-dash-muted uppercase">Date</th>
-                  <th className="px-8 py-4 text-left text-xs font-bold text-dash-muted uppercase">Description</th>
-                  <th className="px-8 py-4 text-left text-xs font-bold text-dash-muted uppercase">Type</th>
-                  <th className="px-8 py-4 text-left text-xs font-bold text-dash-muted uppercase">Amount</th>
-                  <th className="px-8 py-4 text-left text-xs font-bold text-dash-muted uppercase">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-dash-border">
-                {recentTransactions.map((transaction) => (
-                  <tr key={transaction.id} className="hover:bg-dash-bg transition-colors">
-                    <td className="px-8 py-4">
-                      <span className="text-sm font-bold text-dash-text">{transaction.date}</span>
-                    </td>
-                    <td className="px-8 py-4">
-                      <span className="text-sm font-bold text-dash-text">{transaction.description}</span>
-                    </td>
-                    <td className="px-8 py-4">
-                      <div className="flex items-center gap-2 w-fit">
-                        <div className={`p-2 rounded-lg ${
-                          transaction.type === 'Credit' 
-                            ? 'bg-green-100' 
-                            : 'bg-red-100'
-                        }`}>
-                          {transaction.type === 'Credit' ? (
-                            <ArrowDownLeft size={16} className="text-green-600" />
-                          ) : (
-                            <ArrowUpRight size={16} className="text-red-600" />
-                          )}
+          {transactions.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-dash-muted font-bold">No transactions yet</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-dash-bg border-b border-dash-border">
+                  <tr>
+                    <th className="px-8 py-4 text-left text-xs font-bold text-dash-muted uppercase">Date</th>
+                    <th className="px-8 py-4 text-left text-xs font-bold text-dash-muted uppercase">Description</th>
+                    <th className="px-8 py-4 text-left text-xs font-bold text-dash-muted uppercase">Type</th>
+                    <th className="px-8 py-4 text-left text-xs font-bold text-dash-muted uppercase">Amount</th>
+                    <th className="px-8 py-4 text-left text-xs font-bold text-dash-muted uppercase">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-dash-border">
+                  {transactions.map((transaction) => (
+                    <tr key={transaction._id} className="hover:bg-dash-bg transition-colors">
+                      <td className="px-8 py-4">
+                        <span className="text-sm font-bold text-dash-text">
+                          {new Date(transaction.createdAt).toLocaleDateString()}
+                        </span>
+                      </td>
+                      <td className="px-8 py-4">
+                        <span className="text-sm font-bold text-dash-text">{transaction.description}</span>
+                      </td>
+                      <td className="px-8 py-4">
+                        <div className="flex items-center gap-2 w-fit">
+                          <div className={`p-2 rounded-lg ${
+                            transaction.type === 'CREDIT' 
+                              ? 'bg-green-100' 
+                              : transaction.type === 'BLOCK'
+                              ? 'bg-yellow-100'
+                              : 'bg-red-100'
+                          }`}>
+                            {transaction.type === 'CREDIT' ? (
+                              <ArrowDownLeft size={16} className="text-green-600" />
+                            ) : transaction.type === 'BLOCK' ? (
+                              <Lock size={16} className="text-yellow-600" />
+                            ) : (
+                              <ArrowUpRight size={16} className="text-red-600" />
+                            )}
+                          </div>
+                          <span className={`text-sm font-bold ${
+                            transaction.type === 'CREDIT' 
+                              ? 'text-green-600' 
+                              : transaction.type === 'BLOCK'
+                              ? 'text-yellow-600'
+                              : 'text-red-600'
+                          }`}>
+                            {formatTransactionType(transaction.type)}
+                          </span>
                         </div>
+                      </td>
+                      <td className="px-8 py-4">
                         <span className={`text-sm font-bold ${
-                          transaction.type === 'Credit' 
+                          transaction.amount > 0 
                             ? 'text-green-600' 
                             : 'text-red-600'
                         }`}>
-                          {transaction.type}
+                          {transaction.amount > 0 ? '+' : ''}₹{Math.abs(transaction.amount).toLocaleString()}
                         </span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-4">
-                      <span className={`text-sm font-bold ${
-                        transaction.amount > 0 
-                          ? 'text-green-600' 
-                          : 'text-red-600'
-                      }`}>
-                        {transaction.amount > 0 ? '+' : ''}₹{Math.abs(transaction.amount).toLocaleString()}
-                      </span>
-                    </td>
-                    <td className="px-8 py-4">
-                      <span className={`text-xs font-bold px-3 py-1 rounded-lg ${
-                        transaction.status === 'Completed'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {transaction.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      </td>
+                      <td className="px-8 py-4">
+                        <span className={`text-xs font-bold px-3 py-1 rounded-lg ${getStatusBadgeColor(transaction.status || 'Completed')}`}>
+                          {transaction.status || 'Completed'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
