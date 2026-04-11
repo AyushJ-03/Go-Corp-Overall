@@ -650,6 +650,7 @@ const Dashboard = () => {
             savedLocations={user.saved_locations || []}
             officePos={officePos}
             distance={calcDistance(pickup.pos, destination.pos)}
+            destinationType={isOfficeFixed === 'destination' ? 'OFFICE' : 'HOME'}
         />;
     }
  else if (bookingStep === 'scheduling') {

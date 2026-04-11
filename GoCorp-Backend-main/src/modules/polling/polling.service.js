@@ -42,9 +42,25 @@ const calculateEstimatedFare = (distanceInKm) => {
 };
 
 /**
+ * Calculate the shortest distance from a point to a polyline route (in meters)
+ */
+const getDistanceToRoute = (pointCoords, polyline) => {
+  try {
+    if (!polyline || !polyline.coordinates || polyline.coordinates.length < 2) return Infinity;
+    const line = turf.lineString(polyline.coordinates);
+    const pt = turf.point(pointCoords);
+    const nearest = turf.nearestPointOnLine(line, pt);
+    return nearest.properties.dist * 1000; // km to meters
+  } catch (error) {
+    console.error("Error in getDistanceToRoute:", error);
+    return Infinity;
+  }
+};
+
+/**
  * STEP 2 (REFINED): Find the 1st point where new ride's route joins/diverges from the cluster's route
  */
-export const findFirstContactPoint = (newRoutePolyline, clusterPolyline, thresholdMeters = 50, fromEnd = false) => {
+export const findFirstContactPoint = (newRoutePolyline, clusterPolyline, thresholdMeters = 200, fromEnd = false) => {
   try {
     if (!newRoutePolyline || !newRoutePolyline.coordinates || newRoutePolyline.coordinates.length < 2) return null;
     if (!clusterPolyline || !clusterPolyline.coordinates || clusterPolyline.coordinates.length < 2) return null;
@@ -123,7 +139,9 @@ export const can_cluster = async (newRide, existingCluster) => {
 
     if (isToOffice) {
       // TO OFFICE: Primary check is the shared destination (Office)
-      if (!isSimilarDropLocation(newDrop, existingDrop)) {
+      // Logic: Relaxed drop check for office rides (trust office_id from query)
+      const distToDrop = getDistance(newDrop, existingDrop);
+      if (distToDrop > 1000) { // Only reject if they are in different offices entirely (>1km)
         return false;
       }
 
@@ -133,18 +151,33 @@ export const can_cluster = async (newRide, existingCluster) => {
         return true;
       }
 
-      // CONDITION 2: New route joins cluster route + pickup near join point
+      // CONDITION 2: Route Intersection
       if (newRide.route_polyline && existingCluster.pickup_polyline) {
-        const contactPoint = findFirstContactPoint(newRide.route_polyline, existingCluster.pickup_polyline, 50, false);
-        
+        const contactPoint = findFirstContactPoint(newRide.route_polyline, existingCluster.pickup_polyline, 200, false);
         if (contactPoint) {
           const distToNewPickup = getDistance(newPickup, contactPoint);
-          const distToClusterCentroid = getDistance(existingCluster.pickup_centroid.coordinates, contactPoint);
-
-          if (distToNewPickup <= ROUTE_BUFFER_METERS || distToClusterCentroid <= ROUTE_BUFFER_METERS) {
-            console.log(`[Clustering] Match found (TO OFFICE): Ride ${newRide._id} join point near pickup (dist: ${Math.min(distToNewPickup, distToClusterCentroid).toFixed(0)}m)`);
+          if (distToNewPickup <= ROUTE_BUFFER_METERS) {
+            console.log(`[Clustering] Match found (TO OFFICE): Route intersection found within ${ROUTE_BUFFER_METERS}m of pickup`);
             return true;
           }
+        }
+      }
+
+      // CONDITION 3: Proximity Capture (Symmetric - Is New Pickup near Existing Route?)
+      if (existingCluster.pickup_polyline) {
+        const distToRoute = getDistanceToRoute(newPickup, existingCluster.pickup_polyline);
+        if (distToRoute <= ROUTE_BUFFER_METERS) {
+          console.log(`[Clustering] Match found (TO OFFICE): New pickup is near cluster route (dist: ${distToRoute.toFixed(0)}m)`);
+          return true;
+        }
+      }
+
+      // CONDITION 4: Proximity Capture (Symmetric - Is Existing Pickup near New Route?)
+      if (newRide.route_polyline) {
+        const distToNewRoute = getDistanceToRoute(existingPickup, newRide.route_polyline);
+        if (distToNewRoute <= ROUTE_BUFFER_METERS) {
+          console.log(`[Clustering] Match found (TO OFFICE): Existing cluster starts near new ride's route (dist: ${distToNewRoute.toFixed(0)}m)`);
+          return true;
         }
       }
     } else {
@@ -159,19 +192,33 @@ export const can_cluster = async (newRide, existingCluster) => {
         return true;
       }
 
-      // CONDITION 2: New route diverges from cluster route + drop near divergence point
+      // CONDITION 2: Route Divergence
       if (newRide.route_polyline && existingCluster.pickup_polyline) {
-        // Search backwards from the drop location to find where the route joins/diverges from the cluster
-        const contactPoint = findFirstContactPoint(newRide.route_polyline, existingCluster.pickup_polyline, 50, true);
-        
+        const contactPoint = findFirstContactPoint(newRide.route_polyline, existingCluster.pickup_polyline, 200, true);
         if (contactPoint) {
           const distToNewDrop = getDistance(newDrop, contactPoint);
-          const distToExistingDrop = getDistance(existingDrop, contactPoint);
-
-          if (distToNewDrop <= ROUTE_BUFFER_METERS || distToExistingDrop <= ROUTE_BUFFER_METERS) {
-            console.log(`[Clustering] Match found (FROM OFFICE): Ride ${newRide._id} divergence point near drop (dist: ${Math.min(distToNewDrop, distToExistingDrop).toFixed(0)}m)`);
+          if (distToNewDrop <= ROUTE_BUFFER_METERS) {
+            console.log(`[Clustering] Match found (FROM OFFICE): Route divergence found within ${ROUTE_BUFFER_METERS}m of drop`);
             return true;
           }
+        }
+      }
+
+      // CONDITION 3: Proximity Capture (Symmetric - Is New Drop near Existing Route?)
+      if (existingCluster.pickup_polyline) {
+        const distToRoute = getDistanceToRoute(newDrop, existingCluster.pickup_polyline);
+        if (distToRoute <= ROUTE_BUFFER_METERS) {
+          console.log(`[Clustering] Match found (FROM OFFICE): New drop is near cluster route (dist: ${distToRoute.toFixed(0)}m)`);
+          return true;
+        }
+      }
+
+      // CONDITION 4: Proximity Capture (Symmetric - Is Existing Drop near New Route?)
+      if (newRide.route_polyline) {
+        const distToNewRoute = getDistanceToRoute(existingDrop, newRide.route_polyline);
+        if (distToNewRoute <= ROUTE_BUFFER_METERS) {
+          console.log(`[Clustering] Match found (FROM OFFICE): Existing drop is near new ride's route (dist: ${distToNewRoute.toFixed(0)}m)`);
+          return true;
         }
       }
     }
@@ -180,6 +227,146 @@ export const can_cluster = async (newRide, existingCluster) => {
   } catch (error) {
     console.error("Error in can_cluster:", error);
     return false;
+  }
+};
+
+/**
+ * Shared Helper: Update a group's logical order and polyline route
+ * Used by merge operations to ensure the carpool is always optimized
+ */
+const updateGroupRouteAndOrder = async (rideIds, groupDoc, type = 'cluster') => {
+  const allRides = await RideRequest.find({ _id: { $in: rideIds } });
+  if (allRides.length === 0) return groupDoc;
+
+  const firstRide = allRides[0];
+  const isToOffice = firstRide.destination_type === "OFFICE";
+  
+  // We use firstRide's drop/pickup as the office reference depending on direction
+  const officeCoords = isToOffice ? firstRide.drop_location.coordinates : firstRide.pickup_location.coordinates;
+  
+  let orderedRideIds, waypoints;
+
+  if (isToOffice) {
+    // TO OFFICE: Sort by pickup distance from office (Furthest first)
+    const sortedRides = allRides.map(r => ({
+      ride: r,
+      distance: getDistance(r.pickup_location.coordinates, officeCoords)
+    })).sort((a, b) => b.distance - a.distance);
+
+    orderedRideIds = sortedRides.map(sr => sr.ride._id);
+    waypoints = sortedRides.map(sr => sr.ride.pickup_location.coordinates);
+    waypoints.push(officeCoords); // End at office
+  } else {
+    // FROM OFFICE: Sort by drop distance from office (Closest first)
+    const sortedRides = allRides.map(r => ({
+      ride: r,
+      distance: getDistance(r.drop_location.coordinates, officeCoords)
+    })).sort((a, b) => a.distance - b.distance);
+
+    orderedRideIds = sortedRides.map(sr => sr.ride._id);
+    waypoints = [officeCoords]; // Start at office
+    waypoints.push(...sortedRides.map(sr => sr.ride.drop_location.coordinates));
+  }
+
+  const newPolyline = await getRoute(waypoints);
+  const polylineObj = { type: "LineString", coordinates: newPolyline };
+  const distanceInKm = calculatePolylineDistance(polylineObj);
+  const estimatedFare = calculateEstimatedFare(distanceInKm);
+
+  const Model = type === 'cluster' ? Clustering : Batched;
+  const updateData = {
+    ride_ids: orderedRideIds,
+    pickup_polyline: polylineObj,
+    current_size: allRides.length,
+    batch_size: allRides.length,
+    estimated_distance: distanceInKm,
+    estimated_fare: estimatedFare
+  };
+
+  return await Model.findByIdAndUpdate(groupDoc._id, { $set: updateData }, { new: true });
+};
+
+/**
+ * SECONDARY MERGE: Attempt to swallow other eligible clusters into this one
+ * This prevents carpool fragmentation by consolidating groups in real-time
+ */
+export const attemptSecondaryMerge = async (primaryGroup, primaryType = 'cluster') => {
+  try {
+    const currentSize = primaryType === 'cluster' ? primaryGroup.current_size : (primaryGroup.batch_size || primaryGroup.ride_ids.length);
+    if (currentSize >= MAX_CLUSTER_SIZE) return primaryGroup;
+
+    // Find candidates in the same time window
+    const scheduledTime = primaryGroup.scheduled_at;
+    const startTime = new Date(scheduledTime.getTime() - TIME_WINDOW_MINUTES * 60 * 1000);
+    const endTime = new Date(scheduledTime.getTime() + TIME_WINDOW_MINUTES * 60 * 1000);
+
+    const [clusters, batches] = await Promise.all([
+      Clustering.find({
+        _id: { $ne: primaryGroup._id },
+        office_id: primaryGroup.office_id,
+        scheduled_at: { $gte: startTime, $lte: endTime },
+        status: { $in: ["IN_CLUSTERING", "READY_FOR_BATCH"] },
+      }),
+      Batched.find({
+        _id: { $ne: primaryGroup._id },
+        office_id: primaryGroup.office_id,
+        scheduled_at: { $gte: startTime, $lte: endTime },
+        status: { $in: ["CREATED", "READY_FOR_ASSIGNMENT"] },
+        batch_size: { $lt: MAX_CLUSTER_SIZE }
+      })
+    ]);
+
+    const candidates = [
+      ...clusters.map(c => ({ original: c, type: 'cluster', size: c.current_size })),
+      ...batches.map(b => ({ original: b, type: 'batch', size: b.batch_size }))
+    ];
+
+    for (const candidate of candidates) {
+      if (currentSize + candidate.size <= MAX_CLUSTER_SIZE) {
+        // Treat candidate as a "Virtual Ride" for compatibility check
+        const virtualRide = {
+          _id: candidate.original._id,
+          pickup_location: candidate.original.pickup_centroid || candidate.original.pickup_location,
+          drop_location: candidate.original.drop_location,
+          scheduled_at: candidate.original.scheduled_at,
+          route_polyline: candidate.original.pickup_polyline,
+          // Extract destination type from any ride in the candidate group
+          destination_type: (await RideRequest.findById(candidate.original.ride_ids[0]))?.destination_type
+        };
+
+        if (await can_cluster(virtualRide, primaryGroup)) {
+          console.log(`[Secondary Merge] Group ${candidate.original._id} swallowed by ${primaryGroup._id}`);
+          
+          const combinedRideIds = [...primaryGroup.ride_ids, ...candidate.original.ride_ids];
+          
+          // 1. Update swallowed rides' status and links
+          const newStatus = primaryType === 'cluster' ? "IN_CLUSTERING" : "CLUSTERED";
+          const linkUpdate = primaryType === 'cluster' 
+            ? { cluster_id: primaryGroup._id, batch_id: null } 
+            : { batch_id: primaryGroup._id, cluster_id: null };
+
+          await RideRequest.updateMany(
+            { _id: { $in: candidate.original.ride_ids } },
+            { status: newStatus, ...linkUpdate }
+          );
+
+          // 2. Delete or mark swallowed group
+          if (candidate.type === 'cluster') {
+            await Clustering.findByIdAndDelete(candidate.original._id);
+          } else {
+            await Batched.findByIdAndDelete(candidate.original._id);
+          }
+
+          // 3. Update primary group with combined members and optimized route
+          return await updateGroupRouteAndOrder(combinedRideIds, primaryGroup, primaryType);
+        }
+      }
+    }
+
+    return primaryGroup;
+  } catch (error) {
+    console.error("Error in attemptSecondaryMerge:", error);
+    return primaryGroup;
   }
 };
 
@@ -349,7 +536,10 @@ export const handleUnifiedGrouping = async (ride, officeId, scheduledAt) => {
 
     if (bestGroup) {
       if (bestGroup.type === 'cluster') {
-        const mergedCluster = await mergeClusters(ride, bestGroup.original);
+        let mergedCluster = await mergeClusters(ride, bestGroup.original);
+
+        // TRIGGER SECONDARY MERGE: Can this new cluster swallow others?
+        mergedCluster = await attemptSecondaryMerge(mergedCluster, 'cluster');
 
         // If reached size 4, promote to batch
         if (mergedCluster.current_size === MAX_CLUSTER_SIZE) {
@@ -360,7 +550,11 @@ export const handleUnifiedGrouping = async (ride, officeId, scheduledAt) => {
         return { case: 3, cluster_id: mergedCluster._id, batched_id: null, action: "merged" };
       } else {
         // Merge directly into existing batch (Unified Pool)
-        const updatedBatch = await mergeIntoBatch(ride, bestGroup.original);
+        let updatedBatch = await mergeIntoBatch(ride, bestGroup.original);
+        
+        // TRIGGER SECONDARY MERGE: Can this batch swallow clusters?
+        updatedBatch = await attemptSecondaryMerge(updatedBatch, 'batch');
+
         return { case: 3, cluster_id: null, batched_id: updatedBatch._id, action: "joined_batch" };
       }
     } else {
@@ -463,63 +657,8 @@ export const mergeClusters = async (newRide, existingCluster) => {
 
     console.log(`[Clustering] Atomic sync completed for ${allRideIds.length} rides in cluster ${existingCluster._id}`);
 
-    // FETCH AND SORT RIDES BY LOGICAL ORDER (To Office: Furthest Pickup first | From Office: Closest Drop first)
-    const allRides = await RideRequest.find({ _id: { $in: allRideIds } });
-    const firstRide = allRides[0];
-    const isToOffice = firstRide.destination_type === "OFFICE";
-    
-    // We use firstRide's drop/pickup as the office reference depending on direction
-    const officeCoords = isToOffice ? firstRide.drop_location.coordinates : firstRide.pickup_location.coordinates;
-    
-    let orderedRideIds, waypoints;
-
-    if (isToOffice) {
-      // TO OFFICE: Sort by pickup distance from office (Furthest first)
-      const sortedRides = allRides.map(r => ({
-        ride: r,
-        distance: getDistance(r.pickup_location.coordinates, officeCoords)
-      })).sort((a, b) => b.distance - a.distance);
-
-      orderedRideIds = sortedRides.map(sr => sr.ride._id);
-      waypoints = sortedRides.map(sr => sr.ride.pickup_location.coordinates);
-      waypoints.push(officeCoords); // End at office
-      console.log(`[Clustering] Recalculating ordered route (TO OFFICE) for ${orderedRideIds.length} rides`);
-    } else {
-      // FROM OFFICE: Sort by drop distance from office (Closest first)
-      const sortedRides = allRides.map(r => ({
-        ride: r,
-        distance: getDistance(r.drop_location.coordinates, officeCoords)
-      })).sort((a, b) => a.distance - b.distance);
-
-      orderedRideIds = sortedRides.map(sr => sr.ride._id);
-      waypoints = [officeCoords]; // Start at office
-      waypoints.push(...sortedRides.map(sr => sr.ride.drop_location.coordinates));
-      console.log(`[Clustering] Recalculating ordered route (FROM OFFICE) for ${orderedRideIds.length} rides`);
-    }
-
-    const newPolyline = await getRoute(waypoints);
-
-    const updatedCluster = await Clustering.findByIdAndUpdate(
-      refreshedCluster._id,
-      {
-        $set: { ride_ids: orderedRideIds }, // Total Array Sync
-        current_size: newTotalSize,
-        pickup_polyline: {
-          type: "LineString",
-          coordinates: newPolyline
-        },
-        $push: {
-          "metadata.merge_events": {
-            merged_at: new Date(),
-            new_size: newTotalSize,
-            type: "ordered_merge"
-          },
-        },
-      },
-      { new: true }
-    );
-
-    return updatedCluster;
+    // Update group route and order using shared helper
+    return await updateGroupRouteAndOrder(allRideIds, refreshedCluster, 'cluster');
   } catch (error) {
     console.error("Error in mergeClusters:", error);
     throw error;
@@ -560,74 +699,8 @@ export const mergeIntoBatch = async (newRide, existingBatch) => {
       })
     ]);
 
-    // FETCH AND SORT RIDES BY LOGICAL ORDER
-    const allRides = await RideRequest.find({ _id: { $in: allRideIds } });
-    const firstRideInBatch = allRides[0]; // All rides in a batch should share destination_type
-    const isToOffice = firstRideInBatch.destination_type === "OFFICE";
-    
-    const officeCoords = isToOffice ? refreshedBatch.drop_location.coordinates : refreshedBatch.pickup_centroid.coordinates;
-    
-    let orderedRideIds, waypoints;
-
-    if (isToOffice) {
-      // TO OFFICE: Sort by pickup distance from office (Furthest first)
-      const sortedRides = allRides.map(r => ({
-        ride: r,
-        distance: getDistance(r.pickup_location.coordinates, officeCoords)
-      })).sort((a, b) => b.distance - a.distance);
-
-      orderedRideIds = sortedRides.map(sr => sr.ride._id);
-      waypoints = sortedRides.map(sr => sr.ride.pickup_location.coordinates);
-      waypoints.push(officeCoords);
-      console.log(`[Batching] Recalculating ordered route (TO OFFICE) for batch ${refreshedBatch._id}`);
-    } else {
-      // FROM OFFICE: Sort by drop distance from office (Closest first)
-      const sortedRides = allRides.map(r => ({
-        ride: r,
-        distance: getDistance(r.drop_location.coordinates, officeCoords)
-      })).sort((a, b) => a.distance - b.distance);
-
-      orderedRideIds = sortedRides.map(sr => sr.ride._id);
-      waypoints = [officeCoords];
-      waypoints.push(...sortedRides.map(sr => sr.ride.drop_location.coordinates));
-      console.log(`[Batching] Recalculating ordered route (FROM OFFICE) for batch ${refreshedBatch._id}`);
-    }
-
-    const newPolyline = await getRoute(waypoints);
-
-    // Calculate updated distance and fare
-    const updatedPolylineObj = {
-      type: "LineString",
-      coordinates: newPolyline
-    };
-    const updatedDistanceInKm = calculatePolylineDistance(updatedPolylineObj);
-    const updatedEstimatedFare = calculateEstimatedFare(updatedDistanceInKm);
-
-    const updatedBatch = await Batched.findByIdAndUpdate(
-      refreshedBatch._id,
-      {
-        $set: { ride_ids: orderedRideIds }, // Total Array Sync
-        batch_size: newTotalSize,
-        pickup_polyline: {
-          type: "LineString",
-          coordinates: newPolyline
-        },
-        estimated_distance: updatedDistanceInKm,
-        estimated_fare: updatedEstimatedFare,
-        $push: {
-          "metadata.merge_events": {
-            merged_at: new Date(),
-            new_size: newTotalSize,
-            type: "late_joiner_ordered"
-          },
-        },
-      },
-      { new: true }
-    );
-
-    console.log(`[Batching] Updated batch ${refreshedBatch._id} distance: ${updatedDistanceInKm.toFixed(2)} km | fare: ₹${updatedEstimatedFare.toFixed(2)}`);
-
-    return updatedBatch;
+    // Update group route and order using shared helper
+    return await updateGroupRouteAndOrder(allRideIds, refreshedBatch, 'batch');
   } catch (error) {
     console.error("Error in mergeIntoBatch:", error);
     throw error;

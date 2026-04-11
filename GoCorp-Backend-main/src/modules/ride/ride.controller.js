@@ -428,7 +428,8 @@ export const getRideById = async (req, res, next) => {
               ...gr.employee_id.toObject(),
               is_requester: true,
               ride_id: gr._id,
-              pickup_location: gr.pickup_location
+              pickup_location: gr.pickup_location,
+              drop_location: gr.drop_location
             });
           }
           gr.invited_employee_ids.forEach(inv => {
@@ -436,7 +437,8 @@ export const getRideById = async (req, res, next) => {
               ...inv.toObject(),
               is_requester: false,
               ride_id: gr._id,
-              pickup_location: gr.pickup_location
+              pickup_location: gr.pickup_location,
+              drop_location: gr.drop_location
             });
           });
         });
@@ -793,6 +795,7 @@ export const getLatestRideForAdmin = async (req, res, next) => {
               is_requester: true,
               ride_id: gr._id,
               pickup_location: gr.pickup_location,
+              drop_location: gr.drop_location,
               contact: gr.employee_id.contact
             });
           }
@@ -802,6 +805,7 @@ export const getLatestRideForAdmin = async (req, res, next) => {
               is_requester: false,
               ride_id: gr._id,
               pickup_location: gr.pickup_location,
+              drop_location: gr.drop_location,
               contact: inv.contact
             });
           });
