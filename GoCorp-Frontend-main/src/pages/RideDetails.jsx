@@ -22,6 +22,7 @@ const RideDetails = () => {
     const [cancelLoading, setCancelLoading] = useState(false);
     const [showCancelModal, setShowCancelModal] = useState(false);
     const [selectedReason, setSelectedReason] = useState('Change of plans');
+    const [recenterTrigger, setRecenterTrigger] = useState(0);
     
     // Polling State
     const pollingRef = useRef(null);
@@ -161,11 +162,30 @@ const RideDetails = () => {
                         onMapMove={() => {}}
                         onReverseGeocode={() => {}}
                         onMoveStart={() => {}}
-                        isDragging={false}
+                        interactive={true}
+                        fitBoundsTrigger={recenterTrigger}
                         onCurrentLocation={() => {}}
                         participants={ride.group_participants || []}
                         currentRideId={id}
+                        destinationType={ride.destination_type}
+                        showSequence={true}
                     />
+                    
+                    {/* Map Interaction Controls */}
+                    <div className='absolute bottom-6 right-6 z-40 flex flex-col gap-3'>
+                        {/* Route Recenter Button */}
+                        <button 
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setRecenterTrigger(prev => prev + 1);
+                            }}
+                            className='w-14 h-14 bg-slate-900/90 backdrop-blur-md rounded-2xl shadow-2xl flex flex-col items-center justify-center text-white active:scale-90 transition-all border border-white/20 group hover:bg-slate-800'
+                            title="Center on Route"
+                        >
+                            <svg className='w-5 h-5 mb-0.5 group-hover:scale-110 transition-transform' fill='none' stroke='currentColor' viewBox='0 0 24 24'><path strokeLinecap='round' strokeLinejoin='round' strokeWidth={3} d='M9 20l-5.447-2.724A2 2 0 013 15.382V5.618a2 2 0 011.553-1.894L9 2l6 3 5.447-2.724A2 2 0 0121 4.118v9.764a2 2 0 01-1.553 1.894L15 19l-6 1z' /></svg>
+                            <span className='text-[7px] font-black uppercase tracking-tighter'>Route</span>
+                        </button>
+                    </div>
                     
                     {/* Status Badge Over Map */}
                     <div className='absolute top-6 left-6 z-40 bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 flex items-center gap-2'>

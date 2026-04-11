@@ -1,22 +1,28 @@
 import React, { useState } from 'react';
 import L from 'leaflet';
-import { MapContainer, TileLayer, Marker, Circle, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle, Polyline, useMap, Popup } from 'react-leaflet';
 import { isValidPos, getDistance as calcDistance } from '../utils/geoUtils';
 import RideSummary from './RideSummary';
 import ActionModal from './common/ActionModal';
 import { useUI } from '../context/UIContext';
 
-const getMarkerIcon = () => {
+const getStopMarkerIcon = (label, isMine = false, isDrop = false) => {
+    const hexColor = isMine ? '#f97316' : '#2563eb'; // orange-500, blue-600
+    const size = isMine ? 28 : 20;
+    const border = '2px solid white';
+    const shadow = isMine ? '0 0 10px rgba(249,115,22,0.4)' : '0 2px 4px rgba(0,0,0,0.1)';
+
     return L.divIcon({
         html: `
-            <div class="relative flex items-center justify-center w-8 h-8">
-                <div class="absolute inset-0 rounded-full border-[5px] border-orange-500 shadow-sm"></div>
-                <div class="w-1.5 h-1.5 bg-orange-500 rounded-full shadow-[0_0_6px_rgba(249,115,22,1)]"></div>
+            <div style="position: relative; display: flex; align-items: center; justify-content: center; width: ${size}px; height: ${size}px;">
+                <div style="position: absolute; inset: 0; border-radius: 9999px; border: ${border}; background-color: ${hexColor}; box-shadow: ${shadow};"></div>
+                <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 900; color: white;">${label}</div>
+                ${isDrop ? `<div style="position: absolute; bottom: -2px; right: -2px; width: 10px; height: 10px; background-color: white; border-radius: 9999px; border: 1px solid #e2e8f0;"></div>` : ''}
             </div>
         `,
-        className: 'custom-map-marker',
-        iconSize: [32, 32],
-        iconAnchor: [16, 16]
+        className: 'custom-stop-marker',
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2]
     });
 };
 
@@ -26,7 +32,7 @@ const getOfficeMarkerIcon = () => {
             <div class="relative flex items-center justify-center w-8 h-8">
                 <div class="absolute inset-0 bg-blue-600/20 rounded-full animate-ping duration-[3000ms]"></div>
                 <div class="w-3 h-3 bg-blue-600 rounded-full border-2 border-white shadow-lg"></div>
-                <div class="absolute -top-10 px-2 py-1 bg-blue-600 text-white text-[7px] font-black uppercase tracking-widest rounded-md shadow-xl whitespace-nowrap pointer-events-none">Corporate Office</div>
+                <div class="absolute -top-10 px-2 py-1 bg-blue-600 text-white text-[7px] font-black uppercase tracking-widest rounded-md shadow-xl whitespace-nowrap pointer-events-none">Office</div>
             </div>
         `,
         className: 'office-map-marker',
@@ -35,13 +41,65 @@ const getOfficeMarkerIcon = () => {
     });
 };
 
+const getSimpleDotIcon = (isMine = true) => {
+    const color = isMine ? '#f97316' : '#2563eb';
+    return L.divIcon({
+        html: `
+            <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;">
+                <div style="position: absolute; inset: 0; border-radius: 9999px; border: 5px solid ${color}; background-color: white; box-shadow: 0 1px 2px rgba(0,0,0,0.1);"></div>
+                <div style="width: 6px; height: 6px; background-color: ${color}; border-radius: 9999px; box-shadow: 0 0 6px ${color};"></div>
+            </div>
+        `,
+        className: 'custom-map-marker',
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
+    });
+};
+
+/**
+ * Utility to fit map bounds to a polyline route
+ */
+export const FitRouteBounds = ({ polyline, padding = [50, 50], trigger }) => {
+    const map = useMap();
+    const hasAutoFitted = React.useRef(false);
+    
+    // Use useCallback to ensure the handleFit function is stable
+    const handleFit = React.useCallback(() => {
+        if (polyline && polyline.length > 0) {
+            const bounds = L.latLngBounds(polyline);
+            map.fitBounds(bounds, { padding });
+        }
+    }, [map, polyline, padding]);
+
+    // Handle manual trigger (the "Route" button)
+    React.useEffect(() => {
+        if (trigger) {
+            handleFit();
+        }
+    }, [trigger, handleFit]);
+
+    // Perform the initial fit ONLY once when the polyline first becomes available
+    React.useEffect(() => {
+        if (!hasAutoFitted.current && polyline && polyline.length > 0) {
+            handleFit();
+            hasAutoFitted.current = true;
+        }
+    }, [polyline, handleFit]);
+
+    return null;
+};
+
 // --- MAP LAYER ---
 export const MapLayer = ({ 
     pickupPos, destinationPos, officePos, polyline, mapCenter, 
     bookingStep, MapEventsHandler, ChangeView, onMapMove, 
     onReverseGeocode, onMoveStart, isDragging, onCurrentLocation,
-    participants = [], currentRideId = null
+    participants = [], currentRideId = null, interactive = false,
+    fitBoundsTrigger = null, destinationType = 'OFFICE', showSequence = false
 }) => {
+    const isInteractive = interactive || bookingStep !== 'confirmSummary';
+    const isToOffice = destinationType === 'OFFICE';
+
     return (
         <div className='absolute inset-0 z-0 bg-slate-50'>
             <MapContainer 
@@ -50,10 +108,10 @@ export const MapLayer = ({
                 zoom={14} 
                 style={{ height: '100%', width: '100%' }} 
                 zoomControl={false}
-                dragging={bookingStep !== 'confirmSummary'}
-                scrollWheelZoom={bookingStep !== 'confirmSummary'}
-                doubleClickZoom={bookingStep !== 'confirmSummary'}
-                touchZoom={bookingStep !== 'confirmSummary'}
+                dragging={isInteractive}
+                scrollWheelZoom={isInteractive}
+                doubleClickZoom={isInteractive}
+                touchZoom={isInteractive}
             >
                 <TileLayer url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png" />
                 <MapEventsHandler 
@@ -63,6 +121,11 @@ export const MapLayer = ({
                     bookingStep={bookingStep}
                 />
                 <ChangeView center={mapCenter} />
+
+                {/* Auto-recenter on trigger or mount - ONLY for summary/ticket views */}
+                {(bookingStep === 'confirmSummary' || interactive) && (
+                    <FitRouteBounds polyline={polyline} trigger={fitBoundsTrigger} />
+                )}
 
                 {/* Real Route Polyline (OSRM) - Now Blue & Solid */}
                 {polyline && polyline.length > 0 && (
@@ -102,36 +165,64 @@ export const MapLayer = ({
                 {/* Multi-Participant Markers */}
                 {participants.length > 0 ? (
                     participants.map((p, idx) => {
-                        const coords = p.pickup_location?.coordinates;
-                        if (!coords || !Array.isArray(coords)) return null;
+                        // Direction Logic: 
+                        // To Office -> Show Pickups
+                        // From Office -> Show Drops
+                        const coords = isToOffice 
+                            ? p.pickup_location?.coordinates 
+                            : p.drop_location?.coordinates;
+                            
+                        // Fallback: If no location found for the required direction, try the other one
+                        const finalCoords = coords || p.pickup_location?.coordinates || p.drop_location?.coordinates;
+                        if (!finalCoords || !Array.isArray(finalCoords)) return null;
 
-                        // LEAFLET SWAP: Backend is [Lng, Lat], Frontend needs [Lat, Lng]
-                        const leafletPos = [coords[1], coords[0]];
+                        const leafletPos = [finalCoords[1], finalCoords[0]];
                         const isCurrentUser = p.ride_id?.toString() === currentRideId?.toString();
+                        const label = idx + 1;
 
                         return (
                             <Marker 
                                 key={p.ride_id || idx}
                                 position={leafletPos} 
-                                icon={isCurrentUser ? getMarkerIcon() : L.divIcon({
-                                    html: `<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-md"></div>`,
-                                    className: 'other-participant-marker',
-                                    iconSize: [16, 16],
-                                    iconAnchor: [8, 8]
-                                })} 
-                            />
+                                icon={showSequence ? getStopMarkerIcon(label, isCurrentUser, !isToOffice) : getSimpleDotIcon(isCurrentUser)} 
+                            >
+                                {showSequence && (
+                                    <Popup closeButton={false} className="custom-ride-popup">
+                                        <div className="flex items-center gap-3 py-1 pr-2 min-w-[120px]">
+                                            <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center font-black text-xs text-slate-500 overflow-hidden shrink-0 border border-slate-200">
+                                                {p.profile_image ? (
+                                                    <img src={p.profile_image} alt="Profile" className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <span>{p.name?.first_name?.[0]}{p.name?.last_name?.[0]}</span>
+                                                )}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-black text-slate-900 truncate leading-none mb-1">
+                                                    {p.name?.first_name} {p.name?.last_name}
+                                                </p>
+                                                <div className="flex items-center gap-1.5">
+                                                    <div className={`w-1.5 h-1.5 rounded-full ${isCurrentUser ? 'bg-orange-500' : 'bg-blue-600'}`}></div>
+                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.15em]">
+                                                        {isCurrentUser ? 'Your Stop' : 'Partner Stop'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </Popup>
+                                )}
+                            </Marker>
                         );
                     })
                 ) : (
                     // Fallback for single-user booking flow
                     bookingStep === 'confirmSummary' && isValidPos(pickupPos) && (
-                        <Marker position={pickupPos} icon={getMarkerIcon()} />
+                        <Marker position={pickupPos} icon={getSimpleDotIcon(true)} />
                     )
                 )}
 
-                {/* Destination Pin (Office/Home) */}
-                {bookingStep === 'confirmSummary' && isValidPos(destinationPos) && (
-                    <Marker position={destinationPos} icon={getMarkerIcon()} />
+                {/* Single-user destination Pin */}
+                {bookingStep === 'confirmSummary' && destinationPos && isValidPos(destinationPos) && participants.length === 0 && (
+                    <Marker position={destinationPos} icon={isToOffice ? getOfficeMarkerIcon() : getSimpleDotIcon(true)} />
                 )}
             </MapContainer>
 
@@ -220,7 +311,7 @@ export const LocationHeader = ({
 /**
  * Shared Map Component Wrapper for usage inside Views
  */
-const MapBackground = ({ pickup, destination, officePos, polyline, mapCenter, currentGPSPos, bookingStep, onMapMove, onReverseGeocode, onMoveStart, isDragging, onCurrentLocation, MapEventsHandler, ChangeView }) => {
+const MapBackground = ({ pickup, destination, officePos, polyline, mapCenter, currentGPSPos, bookingStep, onMapMove, onReverseGeocode, onMoveStart, isDragging, onCurrentLocation, MapEventsHandler, ChangeView, destinationType }) => {
     // In summary mode, the map is always centered on the current GPS position, clean and silent.
     const activeCenter = bookingStep === 'confirmSummary' && isValidPos(currentGPSPos) 
         ? currentGPSPos 
@@ -242,6 +333,7 @@ const MapBackground = ({ pickup, destination, officePos, polyline, mapCenter, cu
                 onCurrentLocation={onCurrentLocation}
                 MapEventsHandler={MapEventsHandler}
                 ChangeView={ChangeView}
+                destinationType={destinationType}
             />
         </div>
     );
@@ -426,7 +518,7 @@ export const ConfirmationView = ({
     onSchedulingClick, MapEventsHandler, ChangeView,
     invitedEmployees, onAddInvite, onRemoveInvite, onBack,
     isOfficeFixed, onSaveLocation, onRemoveLocation, savedLocations, officePos,
-    distance
+    distance, destinationType
 }) => {
     const { showToast } = useUI();
 
