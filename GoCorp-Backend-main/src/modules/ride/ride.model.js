@@ -123,6 +123,15 @@ const rideRequestSchema = new mongoose.Schema(
 
     cancelled_at: Date,
     cancel_reason: String,
+
+    // Initial individual route polyline to office
+    route_polyline: {
+      type: {
+        type: String,
+        enum: ["LineString"],
+      },
+      coordinates: [[Number]],
+    },
   },
   {
     timestamps: true

@@ -5,6 +5,7 @@ import { ArrowLeft, MapPin, Navigation } from 'lucide-react'
 import Button from '../components/Button'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { deductFare } from '../services/walletAPI'
 
 // Fix for default marker icons in Leaflet with React
 import icon from 'leaflet/dist/images/marker-icon.png'
@@ -162,7 +163,7 @@ const DestinationPage = () => {
     }
   }, [currentRide, routePathFromBatch])
 
-  const handleCompleteRide = () => {
+  const handleCompleteRide = async () => {
     if (batchData && currentRideIndex < batchData.rides.length - 1) {
       // Move to next ride in batch
       const nextIndex = currentRideIndex + 1
@@ -170,8 +171,30 @@ const DestinationPage = () => {
       sessionStorage.setItem('currentRideIndex', nextIndex.toString())
       navigate('/customer-location')
     } else {
-      // Batch complete
-      navigate('/complete-ride')
+      // Batch complete - Show payment success page
+      try {
+        const idToProcess = batchData?.batchId || currentRide?.rideId || currentRide?._id;
+        // Office ID source depends on how it was stored
+        const officeId = batchData?.office_id?._id || batchData?.officeId || currentRide?.officeId || currentRide?.office_id;
+        const finalAmount = batchData?.estimatedFare || currentRide?.estimatedFare || currentRide?.fare || 50;
+        
+        if (officeId && idToProcess) {
+          console.log(`💰 Deducting wallet amount for office ${officeId}: ₹${finalAmount}`);
+          try {
+            await deductFare(officeId, finalAmount, idToProcess);
+          } catch (apiError) {
+            console.error('Wallet API Error Details:', apiError);
+            // Show alert for debugging if it's a specific 500/400 error
+            if (apiError.message || typeof apiError === 'string') {
+              alert(`Wallet Deduction Note: ${apiError.message || apiError}. The ride is completed, but balance update had an issue.`);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Wallet deduction flow failed:', error);
+      }
+      
+      navigate('/payment-success')
     }
   }
 

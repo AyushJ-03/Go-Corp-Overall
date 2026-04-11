@@ -1,7 +1,7 @@
 import express from "express"
 const router = express.Router();
-import { authUser, authDriver } from "../../middleware/auth.middleware.js";
-import { bookRide, getClusters, getPendingRides, getInvitedPeople, getRidesWithEmployeeInvite, getRideEmployeeGroup, cancelRide, getRideById, getPendingBatches, verifyOtp } from "./ride.controller.js";
+import { authUser } from "../../middleware/auth.middleware.js";
+import { bookRide, getClusters, getPendingRides, getInvitedPeople, getRidesWithEmployeeInvite, getRideEmployeeGroup, cancelRide, getRideById, getPendingBatches, verifyOtp, getLatestRideForAdmin } from "./ride.controller.js";
 import { body, param, query } from "express-validator"
 
 router.post("/book-ride", [
@@ -60,6 +60,10 @@ router.get("/:ride_id", [
 router.patch("/cancel/:ride_id", [
   param('ride_id').matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid ride ID format')
 ], authUser, cancelRide);
+
+router.get("/admin/summary/:user_id", [
+  param('user_id').matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid user ID format')
+], authUser, getLatestRideForAdmin);
 
 router.post("/verify-otp", [
   body('ride_id').notEmpty().withMessage('Ride ID is required'),

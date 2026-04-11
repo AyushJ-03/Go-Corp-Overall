@@ -28,7 +28,13 @@ export const loginUser = async (email, password) => {
     // Store token and user data
     if (data.data.token) {
       localStorage.setItem('token', data.data.token);
-      localStorage.setItem('officeId', data.data.user.office_id);
+      
+      // Ensure officeId is stored as a string, handle populated objects
+      const officeId = typeof data.data.user.office_id === 'object' 
+        ? data.data.user.office_id._id 
+        : data.data.user.office_id;
+        
+      localStorage.setItem('officeId', officeId);
       localStorage.setItem('user', JSON.stringify(data.data.user));
     }
 
@@ -51,13 +57,30 @@ export const logoutUser = async () => {
 };
 
 export const getCurrentUser = () => {
-  try {
-    const user = localStorage.getItem('user');
-    return user ? JSON.parse(user) : null;
-  } catch (error) {
-    console.error('Error getting current user:', error);
-    return null;
-  }
+    try {
+        const user = localStorage.getItem('user');
+        return user ? JSON.parse(user) : null;
+    } catch (error) {
+        console.error('Error getting current user:', error);
+        return null;
+    }
+};
+
+export const getUserProfile = async () => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/user/profile`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            },
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to fetch profile');
+        return data.data.user;
+    } catch (error) {
+        console.error('Error fetching profile:', error);
+        throw error;
+    }
 };
 
 export const isAuthenticated = () => {

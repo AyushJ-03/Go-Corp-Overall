@@ -42,25 +42,30 @@ const calculateEstimatedFare = (distanceInKm) => {
 };
 
 /**
- * STEP 2 (FULL CHECK): Check if new pickup is within route buffer of existing polyline
+ * STEP 2 (REFINED): Find the 1st point where new ride's route joins the cluster's route
  */
-export const checkPolylineRouteBuffer = (polyline, newPickupCoords, bufferMeters) => {
+export const findFirstContactPoint = (newRoutePolyline, clusterPolyline, thresholdMeters = 50) => {
   try {
-    if (!polyline || !polyline.coordinates || polyline.coordinates.length === 0) {
-      return false;
+    if (!newRoutePolyline || !newRoutePolyline.coordinates || newRoutePolyline.coordinates.length < 2) return null;
+    if (!clusterPolyline || !clusterPolyline.coordinates || clusterPolyline.coordinates.length < 2) return null;
+
+    const clusterLine = turf.lineString(clusterPolyline.coordinates);
+
+    // Iterate through points of the new route to find the first one near the cluster line
+    for (const coords of newRoutePolyline.coordinates) {
+      const point = turf.point(coords);
+      const nearestPoint = turf.nearestPointOnLine(clusterLine, point);
+      const distance = nearestPoint.properties.dist * 1000; // km to meters
+
+      if (distance <= thresholdMeters) {
+        return coords; // This is our 1st point of contact
+      }
     }
 
-    const point = turf.point(newPickupCoords);
-    const lineString = turf.lineString(polyline.coordinates);
-
-    // Find nearest point on the line to the new pickup
-    const nearestPoint = turf.nearestPointOnLine(lineString, point);
-    const distanceToLine = nearestPoint.properties.dist * 1000; // turf.js returns km, convert to meters
-
-    return distanceToLine <= bufferMeters;
+    return null;
   } catch (error) {
-    console.error("Error in checkPolylineRouteBuffer:", error);
-    return false;
+    console.error("Error in findFirstContactPoint:", error);
+    return null;
   }
 };
 
@@ -120,21 +125,23 @@ export const can_cluster = async (newRide, existingCluster) => {
 
     // CONDITION 1: Similar pickup location + similar drop + within time window
     if (isSimilarPickupLocation(newPickup, existingPickup)) {
+      console.log(`[Clustering] Match found: Ride ${newRide._id} has similar pickup as cluster ${existingCluster._id}`);
       return true;
     }
 
-    // CONDITION 2: New pickup within route buffer of existing polyline + similar drop + within time window
-    if (existingCluster.pickup_polyline) {
-      // Full check: Check actual polyline distance
-      const inBuffer = checkPolylineRouteBuffer(
-        existingCluster.pickup_polyline,
-        newPickup,
-        ROUTE_BUFFER_METERS
-      );
+    // CONDITION 2 (REFINED): New route joins cluster route + pickup within 300m of join point
+    if (newRide.route_polyline && existingCluster.pickup_polyline) {
+      const contactPoint = findFirstContactPoint(newRide.route_polyline, existingCluster.pickup_polyline);
+      
+      if (contactPoint) {
+        // Check if either the new pickup OR the existing cluster proximity point is near this join point
+        const distToNewPickup = getDistance(newPickup, contactPoint);
+        const distToClusterCentroid = getDistance(existingCluster.pickup_centroid.coordinates, contactPoint);
 
-      if (inBuffer) {
-        console.log(`[Clustering] Match found: Ride ${newRide._id} is within ${ROUTE_BUFFER_METERS}m of cluster ${existingCluster._id} polyline.`);
-        return true;
+        if (distToNewPickup <= 500 || distToClusterCentroid <= 500) {
+          console.log(`[Clustering] Match found: Ride ${newRide._id} contact point is near pickup (dist: ${Math.min(distToNewPickup, distToClusterCentroid).toFixed(0)}m)`);
+          return true;
+        }
       }
     }
 
@@ -272,7 +279,7 @@ export const handleCase1_SoloPreference = async (ride) => {
 export const handleNewCluster = async (ride, officeId, scheduledAt) => {
   try {
     const employees = await getEmployeesInRideGroup(ride._id);
-    
+
     // Create a new cluster
     const clustering = await Clustering.create({
       office_id: officeId,
@@ -312,13 +319,13 @@ export const handleUnifiedGrouping = async (ride, officeId, scheduledAt) => {
     if (bestGroup) {
       if (bestGroup.type === 'cluster') {
         const mergedCluster = await mergeClusters(ride, bestGroup.original);
-        
+
         // If reached size 4, promote to batch
         if (mergedCluster.current_size === MAX_CLUSTER_SIZE) {
           const batched = await moveToBatched(mergedCluster, false, "Merged to max size");
           return { case: 3, cluster_id: null, batched_id: batched._id, action: "merged_and_batched" };
         }
-        
+
         return { case: 3, cluster_id: mergedCluster._id, batched_id: null, action: "merged" };
       } else {
         // Merge directly into existing batch (Unified Pool)
@@ -401,16 +408,16 @@ export const mergeClusters = async (newRide, existingCluster) => {
 
     // GHOST CLEANUP: If the new ride was accidentally in another cluster, remove it
     // This prevents "Split Groups" where different users see different clusters
-    await Clustering.deleteMany({ 
+    await Clustering.deleteMany({
       _id: { $ne: existingCluster._id },
-      ride_ids: newRide._id 
+      ride_ids: newRide._id
     });
 
     // Atomic Sync: Update members with the refreshed list
     const allRideIds = [...refreshedCluster.ride_ids, newRide._id].map(id => new mongoose.Types.ObjectId(id));
-    
+
     console.log(`[Merge-Audit] Refreshing Cluster ${existingCluster._id}. Current members: ${refreshedCluster.ride_ids.length}. Adding User 2/3.`);
-    
+
     await Promise.all([
       RideRequest.updateMany(
         { _id: { $in: allRideIds } },
@@ -422,24 +429,43 @@ export const mergeClusters = async (newRide, existingCluster) => {
         cluster_id: existingCluster._id
       })
     ]);
-    
+
     console.log(`[Clustering] Atomic sync completed for ${allRideIds.length} rides in cluster ${existingCluster._id}`);
 
-    // FETCH AND SORT RIDES BY PICKUP ORDER (Furthest from office first)
+    // FETCH AND SORT RIDES BY LOGICAL ORDER (To Office: Furthest Pickup first | From Office: Closest Drop first)
     const allRides = await RideRequest.find({ _id: { $in: allRideIds } });
-    const officeCoords = existingCluster.drop_location.coordinates;
+    const firstRide = allRides[0];
+    const isToOffice = firstRide.destination_type === "OFFICE";
     
-    // Calculate distances and sort
-    const sortedRides = allRides.map(r => ({
-      ride: r,
-      distance: getDistance(r.pickup_location.coordinates, officeCoords)
-    })).sort((a, b) => b.distance - a.distance); // Descending (Furthest first)
+    // We use firstRide's drop/pickup as the office reference depending on direction
+    const officeCoords = isToOffice ? firstRide.drop_location.coordinates : firstRide.pickup_location.coordinates;
+    
+    let orderedRideIds, waypoints;
 
-    const orderedRideIds = sortedRides.map(sr => sr.ride._id);
-    const waypoints = sortedRides.map(sr => sr.ride.pickup_location.coordinates);
-    waypoints.push(officeCoords);
+    if (isToOffice) {
+      // TO OFFICE: Sort by pickup distance from office (Furthest first)
+      const sortedRides = allRides.map(r => ({
+        ride: r,
+        distance: getDistance(r.pickup_location.coordinates, officeCoords)
+      })).sort((a, b) => b.distance - a.distance);
 
-    console.log(`[Clustering] Recalculating ordered route for ${orderedRideIds.length} rides (Pickup Order sequence)`);
+      orderedRideIds = sortedRides.map(sr => sr.ride._id);
+      waypoints = sortedRides.map(sr => sr.ride.pickup_location.coordinates);
+      waypoints.push(officeCoords); // End at office
+      console.log(`[Clustering] Recalculating ordered route (TO OFFICE) for ${orderedRideIds.length} rides`);
+    } else {
+      // FROM OFFICE: Sort by drop distance from office (Closest first)
+      const sortedRides = allRides.map(r => ({
+        ride: r,
+        distance: getDistance(r.drop_location.coordinates, officeCoords)
+      })).sort((a, b) => a.distance - b.distance);
+
+      orderedRideIds = sortedRides.map(sr => sr.ride._id);
+      waypoints = [officeCoords]; // Start at office
+      waypoints.push(...sortedRides.map(sr => sr.ride.drop_location.coordinates));
+      console.log(`[Clustering] Recalculating ordered route (FROM OFFICE) for ${orderedRideIds.length} rides`);
+    }
+
     const newPolyline = await getRoute(waypoints);
 
     const updatedCluster = await Clustering.findByIdAndUpdate(
@@ -484,13 +510,13 @@ export const mergeIntoBatch = async (newRide, existingBatch) => {
 
     // Atomic Sync: Hard-link the joiner directly to the Batch
     const allRideIds = [...refreshedBatch.ride_ids, newRide._id].map(id => new mongoose.Types.ObjectId(id));
-    
+
     console.log(`[Merge-Audit] Refreshing Batch ${existingBatch._id}. Current members: ${refreshedBatch.ride_ids.length}. Adding Joiner.`);
-    
+
     await Promise.all([
       RideRequest.updateMany(
         { _id: { $in: allRideIds } },
-        { 
+        {
           status: "CLUSTERED",
           batch_id: existingBatch._id,
           cluster_id: null // Clear cluster link as we are now batched
@@ -503,21 +529,39 @@ export const mergeIntoBatch = async (newRide, existingBatch) => {
       })
     ]);
 
-    // FETCH AND SORT RIDES BY PICKUP ORDER (Furthest from office first)
+    // FETCH AND SORT RIDES BY LOGICAL ORDER
     const allRides = await RideRequest.find({ _id: { $in: allRideIds } });
-    const officeCoords = existingBatch.drop_location.coordinates;
+    const firstRideInBatch = allRides[0]; // All rides in a batch should share destination_type
+    const isToOffice = firstRideInBatch.destination_type === "OFFICE";
     
-    // Calculate distances and sort
-    const sortedRides = allRides.map(r => ({
-      ride: r,
-      distance: getDistance(r.pickup_location.coordinates, officeCoords)
-    })).sort((a, b) => b.distance - a.distance); // Descending (Furthest first)
+    const officeCoords = isToOffice ? refreshedBatch.drop_location.coordinates : refreshedBatch.pickup_centroid.coordinates;
+    
+    let orderedRideIds, waypoints;
 
-    const orderedRideIds = sortedRides.map(sr => sr.ride._id);
-    const waypoints = sortedRides.map(sr => sr.ride.pickup_location.coordinates);
-    waypoints.push(officeCoords);
+    if (isToOffice) {
+      // TO OFFICE: Sort by pickup distance from office (Furthest first)
+      const sortedRides = allRides.map(r => ({
+        ride: r,
+        distance: getDistance(r.pickup_location.coordinates, officeCoords)
+      })).sort((a, b) => b.distance - a.distance);
 
-    console.log(`[Batching] Recalculating ordered route for batch ${refreshedBatch._id} (Late-joiner sequence)`);
+      orderedRideIds = sortedRides.map(sr => sr.ride._id);
+      waypoints = sortedRides.map(sr => sr.ride.pickup_location.coordinates);
+      waypoints.push(officeCoords);
+      console.log(`[Batching] Recalculating ordered route (TO OFFICE) for batch ${refreshedBatch._id}`);
+    } else {
+      // FROM OFFICE: Sort by drop distance from office (Closest first)
+      const sortedRides = allRides.map(r => ({
+        ride: r,
+        distance: getDistance(r.drop_location.coordinates, officeCoords)
+      })).sort((a, b) => a.distance - b.distance);
+
+      orderedRideIds = sortedRides.map(sr => sr.ride._id);
+      waypoints = [officeCoords];
+      waypoints.push(...sortedRides.map(sr => sr.ride.drop_location.coordinates));
+      console.log(`[Batching] Recalculating ordered route (FROM OFFICE) for batch ${refreshedBatch._id}`);
+    }
+
     const newPolyline = await getRoute(waypoints);
 
     // Calculate updated distance and fare
@@ -627,6 +671,17 @@ export const routeRideRequest = async (ride) => {
     const rideSize = ride.invited_employee_ids.length + 1;
     const officeId = ride.office_id;
     const scheduledAt = ride.scheduled_at;
+
+    // Instantly create its real road route polyline to office if it doesn't exist
+    if (!ride.route_polyline || !ride.route_polyline.coordinates || ride.route_polyline.coordinates.length === 0) {
+      console.log(`[Clustering] Generating initial road route for Ride ${ride._id}`);
+      const coords = await getRoute([ride.pickup_location.coordinates, ride.drop_location.coordinates]);
+      ride.route_polyline = {
+        type: "LineString",
+        coordinates: coords
+      };
+      await RideRequest.findByIdAndUpdate(ride._id, { route_polyline: ride.route_polyline });
+    }
 
     // Case 1: Solo preference + size 1 → Direct to Batched
     if (rideSize === 1 && ride.solo_preference) {

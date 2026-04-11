@@ -128,7 +128,7 @@ export const bookRide = async (req, res, next) => {
       console.log("Status:", ride.status);
       console.log("Scheduled At:", ride.scheduled_at);
       console.log("Pickup Location:", ride.pickup_location.coordinates);
-      
+
       // Automatically submit to polling system
       console.log("\n--- AUTO-SUBMITTING TO POLLING ---");
       const pollingResult = await routeRideRequest(ride);
@@ -139,7 +139,7 @@ export const bookRide = async (req, res, next) => {
         .populate('employee_id', 'name email profile_image')
         .populate('office_id', 'name office_location shift_start shift_end')
         .populate('invited_employee_ids', 'name email profile_image');
-      
+
       res
         .status(201)
         .json(new ApiResponse(201, "Ride booked and submitted to polling successfully", {
@@ -366,7 +366,7 @@ export const getRideById = async (req, res, next) => {
     if (!["CANCELLED", "COMPLETED", "DROPPED_OFF", "REJECTED"].includes(ride.status)) {
       const { Clustering } = await import('../polling/clustering.model.js');
       const { Batched } = await import('../polling/batched.model.js');
-      
+
       const rideObjectId = new mongoose.Types.ObjectId(ride._id);
 
       // 1. ATOMIC LOAD: Use the hard-links established by the polling service
@@ -394,7 +394,7 @@ export const getRideById = async (req, res, next) => {
         // Forced Repair: Any ride in a batch is CLUSTERED
         if (ride.status !== 'CLUSTERED' && ride.status !== 'COMPLETED') {
           console.log(`[Sync-Repair] Forcing Ride ${ride._id} status to CLUSTERED (was ${ride.status})`);
-          responseData.status = 'CLUSTERED'; 
+          responseData.status = 'CLUSTERED';
         }
       } else if (cluster) {
         responseData.clustering = {
@@ -417,10 +417,14 @@ export const getRideById = async (req, res, next) => {
           .populate('employee_id', 'name email profile_image')
           .populate('invited_employee_ids', 'name email profile_image');
 
-        const participantsMap = new Map();
-        groupRides.forEach(gr => {
+        // Sort groupRides to match targetRides order
+        const ridesMap = new Map(groupRides.map(r => [r._id.toString(), r]));
+        const sortedRides = targetRides.map(id => ridesMap.get(id.toString())).filter(Boolean);
+
+        const participantsList = [];
+        sortedRides.forEach(gr => {
           if (gr.employee_id) {
-            participantsMap.set(gr.employee_id._id.toString(), {
+            participantsList.push({
               ...gr.employee_id.toObject(),
               is_requester: true,
               ride_id: gr._id,
@@ -428,7 +432,7 @@ export const getRideById = async (req, res, next) => {
             });
           }
           gr.invited_employee_ids.forEach(inv => {
-            participantsMap.set(inv._id.toString(), {
+            participantsList.push({
               ...inv.toObject(),
               is_requester: false,
               ride_id: gr._id,
@@ -437,8 +441,9 @@ export const getRideById = async (req, res, next) => {
           });
         });
 
-        responseData.group_participants = Array.from(participantsMap.values());
+        responseData.group_participants = participantsList;
       }
+
     }
 
     res.status(200).json(new ApiResponse(200, "Ride retrieved successfully", responseData));
@@ -608,7 +613,7 @@ export const getPendingBatches = async (req, res, next) => {
     }).populate("office_id", "office_name office_location");
 
     const calculateDistance = (lat1, lon1, lat2, lon2) => {
-      const R = 6371; 
+      const R = 6371;
       const dLat = ((lat2 - lat1) * Math.PI) / 180;
       const dLon = ((lon2 - lon1) * Math.PI) / 180;
       const a =
@@ -630,9 +635,9 @@ export const getPendingBatches = async (req, res, next) => {
       }
       const [pickupLng, pickupLat] = batch.pickup_centroid.coordinates;
       const distanceKm = calculateDistance(driverLat, driverLng, pickupLat, pickupLng);
-      
+
       console.log(`📍 Batch ${batch._id} distance: ${distanceKm.toFixed(2)}km (Status: ${batch.status})`);
-      
+
       return distanceKm <= 1000;
     });
 
@@ -703,3 +708,113 @@ export const verifyOtp = async (req, res, next) => {
     next(error || new ApiError(500, "Error verifying OTP"));
   }
 };
+
+/**
+ * Admin: Get latest ride for a specific user
+ */
+export const getLatestRideForAdmin = async (req, res, next) => {
+  try {
+    const { user_id } = req.params;
+
+    if (!user_id.match(/^[0-9a-fA-F]{24}$/)) {
+      throw new ApiError(400, "Invalid user ID format");
+    }
+
+    const ride = await RideRequest.findOne({
+      employee_id: user_id,
+      status: { $ne: "REJECTED" } // We want the latest real ride
+    })
+      .sort({ createdAt: -1 })
+      .populate('employee_id', 'name email contact profile_image')
+      .populate('office_id', 'name office_location shift_start shift_end');
+
+    if (!ride) {
+      return res.status(200).json(new ApiResponse(200, "No ride history found", null));
+    }
+
+    // NEW: Include polling/clustering info for frontend visualization
+    let responseData = { ...ride.toJSON() };
+
+    // Check if ride is part of an active cluster/batch
+    if (!["CANCELLED", "COMPLETED", "DROPPED_OFF", "REJECTED"].includes(ride.status)) {
+      const { Clustering } = await import('../polling/clustering.model.js');
+      const { Batched } = await import('../polling/batched.model.js');
+
+      const batchId = ride.batch_id;
+      const clusterId = ride.cluster_id;
+
+      let batch = batchId ? await Batched.findById(batchId) : null;
+      let cluster = clusterId ? await Clustering.findById(clusterId) : null;
+
+      if (!batch && cluster?.batch_id) {
+        batch = await Batched.findById(cluster.batch_id);
+      }
+
+      if (batch) {
+        responseData.batch = {
+          batch_id: batch._id,
+          batch_size: batch.batch_size,
+          status: batch.status,
+          pickup_polyline: batch.pickup_polyline,
+          driver_id: batch.driver_id,
+          estimated_fare: batch.estimated_fare
+        };
+        if (ride.status !== 'CLUSTERED' && ride.status !== 'COMPLETED') {
+          responseData.status = 'CLUSTERED';
+        }
+      } else if (cluster) {
+        responseData.clustering = {
+          cluster_id: cluster._id,
+          current_size: cluster.current_size,
+          status: cluster.status,
+          pickup_polyline: cluster.pickup_polyline,
+        };
+        if (ride.status === 'PENDING') {
+          responseData.status = 'IN_CLUSTERING';
+        }
+      }
+
+      // Load all participants from the group
+      const targetRides = batch?.ride_ids || cluster?.ride_ids || [];
+      if (targetRides.length > 0) {
+        const groupRides = await RideRequest.find({ _id: { $in: targetRides } })
+          .populate('employee_id', 'name email contact profile_image')
+          .populate('invited_employee_ids', 'name email contact profile_image');
+
+        // Sort groupRides to match targetRides order
+        const ridesMap = new Map(groupRides.map(r => [r._id.toString(), r]));
+        const sortedRides = targetRides.map(id => ridesMap.get(id.toString())).filter(Boolean);
+
+        const participantsList = [];
+        sortedRides.forEach(gr => {
+          if (gr.employee_id) {
+            participantsList.push({
+              ...gr.employee_id.toObject(),
+              is_requester: true,
+              ride_id: gr._id,
+              pickup_location: gr.pickup_location,
+              contact: gr.employee_id.contact
+            });
+          }
+          gr.invited_employee_ids.forEach(inv => {
+            participantsList.push({
+              ...inv.toObject(),
+              is_requester: false,
+              ride_id: gr._id,
+              pickup_location: gr.pickup_location,
+              contact: inv.contact
+            });
+          });
+        });
+
+        responseData.group_participants = participantsList;
+      }
+
+    }
+
+    res.status(200).json(new ApiResponse(200, "User ride summary retrieved", responseData));
+  } catch (error) {
+    next(error || new ApiError(500, "Error retrieving user summary"));
+  }
+};
+
