@@ -1,5 +1,5 @@
 // Authentication API service
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 export const loginUser = async (email, password) => {
   try {
@@ -20,15 +20,17 @@ export const loginUser = async (email, password) => {
       throw new Error(data.message || 'Login failed');
     }
 
-    // Check if user role is OFFICE_ADMIN
+    // Check if user role is OFFICE_ADMIN (Go-Corp-Admin portal only allows OFFICE_ADMIN)
     if (data.data.user.role !== 'OFFICE_ADMIN') {
-      throw new Error('Only OFFICE_ADMIN users can access this portal');
+      throw new Error('Access Denied: Only Office Administrators can access this portal. Your role is: ' + data.data.user.role);
     }
 
     // Store token and user data
     if (data.data.token) {
       localStorage.setItem('token', data.data.token);
-      localStorage.setItem('officeId', data.data.user.office_id);
+      // Backend populates office_id, so we need to store just the ID string
+      const officeId = data.data.user.office_id?._id || data.data.user.office_id;
+      localStorage.setItem('officeId', officeId);
       localStorage.setItem('user', JSON.stringify(data.data.user));
     }
 

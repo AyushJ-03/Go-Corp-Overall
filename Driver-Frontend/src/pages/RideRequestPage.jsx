@@ -5,6 +5,8 @@ import 'leaflet/dist/leaflet.css'
 import CircularTimer from '../components/Dashboard/CircularTimer'
 import Button from '../components/Button'
 import { useRide } from '../context/RideContext'
+import { acceptRide } from '../services/rideAPI'
+import { blockAmount } from '../services/walletAPI'
 
 const RideRequestPage = () => {
   const navigate = useNavigate()
@@ -22,19 +24,42 @@ const RideRequestPage = () => {
     navigate('/dashboard')
   }
 
-  const handleAccept = () => {
+  const handleAccept = async () => {
     // Create a structured ride object to pass to next page
     if (activeRide) {
-      localStorage.setItem('acceptedRide', JSON.stringify({
-        rideId: activeRide._id,
-        employeeName: activeRide.employee_id?.name,
-        pickupAddress: activeRide.pickup_address,
-        pickupLocation: activeRide.pickup_location,
-        dropAddress: activeRide.drop_address,
-        dropLocation: activeRide.drop_location,
-        paymentMethod: 'Cash Payment' // Can be enhanced based on data
-      }))
-      navigate('/customer-location')
+      try {
+        // 1. Accept the ride in backend
+        await acceptRide(activeRide._id);
+        
+        // 2. Block amount in wallet
+        const officeId = activeRide.office_id?._id || activeRide.office_id;
+        // Solo rides might have fare in different fields
+        const estimatedFare = activeRide.estimated_fare || activeRide.fare || activeRide.price || 50; 
+        
+        if (officeId) {
+          console.log(`💰 Blocking wallet amount for office ${officeId}: ₹${estimatedFare}`);
+          await blockAmount(officeId, estimatedFare, activeRide._id);
+        }
+
+        // 3. Save to local storage and navigate
+        localStorage.setItem('acceptedRide', JSON.stringify({
+          rideId: activeRide._id,
+          employeeName: activeRide.employee_id?.name?.first_name 
+            ? `${activeRide.employee_id.name.first_name} ${activeRide.employee_id.name.last_name || ''}`
+            : (activeRide.employee_id?.name || 'Employee'),
+          pickupAddress: activeRide.pickup_address,
+          pickupLocation: activeRide.pickup_location,
+          dropAddress: activeRide.drop_address,
+          dropLocation: activeRide.drop_location,
+          paymentMethod: 'AutoPay',
+          officeId: officeId, // Storing for later deduction
+          estimatedFare: estimatedFare
+        }))
+        navigate('/customer-location')
+      } catch (error) {
+        console.error('Error accepting ride:', error);
+        alert('Failed to accept ride: ' + (error.message || 'Unknown error'));
+      }
     }
   }
 

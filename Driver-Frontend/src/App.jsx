@@ -14,6 +14,7 @@ import ArrivedPage from './pages/ArrivedPage'
 import OTPVerificationPage from './pages/OTPVerificationPage'
 import DestinationPage from './pages/DestinationPage'
 import CompleteRidePage from './pages/CompleteRidePage'
+import PaymentSuccessPage from './pages/PaymentSuccessPage'
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
             <Route path="/otp-verification" element={<OTPVerificationPage />} />
             <Route path="/destination" element={<DestinationPage />} />
             <Route path="/complete-ride" element={<CompleteRidePage />} />
+            <Route path="/payment-success" element={<PaymentSuccessPage />} />
           </Routes>
         </div>
       </RideProvider>

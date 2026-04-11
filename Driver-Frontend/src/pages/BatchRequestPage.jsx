@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css'
 import CircularTimer from '../components/Dashboard/CircularTimer'
 import Button from '../components/Button'
 import { useRide } from '../context/RideContext'
+import { blockAmount } from '../services/walletAPI'
 
 // Fix for default marker icons in Leaflet with React
 import icon from 'leaflet/dist/images/marker-icon.png'
@@ -158,6 +159,22 @@ const BatchRequestPage = () => {
         const data = await response.json()
         console.log('Batch accepted successfully:', data)
 
+        // Block funds in wallet
+        try {
+          const officeId = activeBatch.office_id?._id || activeBatch.office_id;
+          const estimatedFare = data.data?.estimated_fare || activeBatch.estimated_fare;
+          
+          if (officeId && estimatedFare) {
+             console.log(`💰 Blocking wallet amount for office ${officeId}: ₹${estimatedFare}`);
+             await blockAmount(officeId, estimatedFare, activeBatch._id);
+          }
+        } catch (walletError) {
+          console.error('Wallet block failed:', walletError);
+          // We could potentially stop here if wallet block is mandatory
+          // but usually it's better to log it and continue if the ride itself is accepted
+          // Unless the requirements explicitly say to fail the acceptance.
+        }
+
         // Store batch data in localStorage
         const estimatedFareFromApi = data.data?.estimated_fare;
         const estimatedFareFromBatch = activeBatch?.estimated_fare;
@@ -167,11 +184,11 @@ const BatchRequestPage = () => {
         const estimatedDistanceFromBatch = activeBatch?.estimated_distance;
         const estimatedDistanceValue = estimatedDistanceFromApi !== undefined ? estimatedDistanceFromApi : estimatedDistanceFromBatch;
         
-        console.log('Fare sources - API:', estimatedFareFromApi, 'Batch:', estimatedFareFromBatch, 'Final:', estimatedFareValue);
-        console.log('Distance sources - API:', estimatedDistanceFromApi, 'Batch:', estimatedDistanceFromBatch, 'Final:', estimatedDistanceValue);
+        const officeId = activeBatch.office_id?._id || activeBatch.office_id;
 
         localStorage.setItem('acceptedBatch', JSON.stringify({
           batchId: activeBatch._id,
+          officeId: officeId, // Added missing officeId
           direction: activeBatch.direction,
           routePolyline: activeBatch.route_polyline || activeBatch.routePolyline,
           pickupPolyline: activeBatch.pickup_polyline || activeBatch.pickupPolyline,
@@ -189,7 +206,8 @@ const BatchRequestPage = () => {
             dropLocation: ride.drop_location,
             pickupOrder: ride.pickup_order,
             otp: ride.otp,
-            employee_id: ride.employee_id
+            employee_id: ride.employee_id,
+            officeId: officeId // Also store in individual rides for safety
           }))
         }))
         sessionStorage.setItem('currentRideIndex', '0')
