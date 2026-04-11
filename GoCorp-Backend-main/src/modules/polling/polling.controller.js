@@ -1,4 +1,4 @@
-import { RideRequest } from "../ride/ride.model.js";
+import { RideRequest } from "../ride/ride.model.js"; import mongoose from "mongoose";
 import { Clustering } from "./clustering.model.js";
 import { Batched } from "./batched.model.js";
 import ApiResponse from "../../utils/ApiResponse.js";
@@ -365,16 +365,30 @@ export const getPollingStats = async (req, res, next) => {
     }
 
     const { office_id, date } = req.query;
+    console.log(`[Stats API] Request for office_id: ${office_id}, date: ${date}`);
 
-    // Parse date to get start and end of day
-    const dateObj = new Date(date);
+    if (!office_id || !mongoose.Types.ObjectId.isValid(office_id)) {
+      console.error(`[Stats API] Invalid office_id: ${office_id}`);
+      throw new ApiError(400, "Invalid or missing Office ID");
+    }
+
+    const dateObj = date ? new Date(date) : new Date();
+    if (isNaN(dateObj.getTime())) {
+      console.error(`[Stats API] Invalid date provided: ${date}`);
+      throw new ApiError(400, "Invalid date format");
+    }
+
     const dayStart = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    if (!office_id || !mongoose.Types.ObjectId.isValid(office_id)) {
+      throw new ApiError(400, "Invalid or missing Office ID");
+    }
 
     const clusteringStats = await Clustering.aggregate([
       {
         $match: {
-          office_id: new (require("mongoose")).Types.ObjectId(office_id),
+          office_id: new mongoose.Types.ObjectId(office_id),
           scheduled_at: { $gte: dayStart, $lt: dayEnd },
         },
       },
@@ -390,7 +404,7 @@ export const getPollingStats = async (req, res, next) => {
     const batchedStats = await Batched.aggregate([
       {
         $match: {
-          office_id: new (require("mongoose")).Types.ObjectId(office_id),
+          office_id: new mongoose.Types.ObjectId(office_id),
           scheduled_at: { $gte: dayStart, $lt: dayEnd },
         },
       },
@@ -406,7 +420,7 @@ export const getPollingStats = async (req, res, next) => {
     const rideStats = await RideRequest.aggregate([
       {
         $match: {
-          office_id: new (require("mongoose")).Types.ObjectId(office_id),
+          office_id: new mongoose.Types.ObjectId(office_id),
           scheduled_at: { $gte: dayStart, $lt: dayEnd },
         },
       },
@@ -418,6 +432,39 @@ export const getPollingStats = async (req, res, next) => {
       },
     ]);
 
+    // FINANCE AGGREGATION: Total Spend & Savings for the current month
+    const monthStart = new Date(dateObj.getFullYear(), dateObj.getMonth(), 1);
+    const monthEnd = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0, 23, 59, 59);
+
+    const monthlyFinance = await Batched.aggregate([
+      {
+        $match: {
+          office_id: new mongoose.Types.ObjectId(office_id),
+          scheduled_at: { $gte: monthStart, $lt: monthEnd },
+          status: { $ne: "CANCELLED" }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalSpend: { $sum: "$estimated_fare" },
+          totalRides: { $sum: "$batch_size" },
+          totalDistance: { $sum: "$estimated_distance" }
+        }
+      }
+    ]);
+
+    const finance = monthlyFinance[0] || { totalSpend: 0, totalRides: 0, totalDistance: 0 };
+
+    // Efficiency Calculation:
+    // Theoretical Solo Cost = base(40) * totalRides + (totalDistance * 12)
+    // Note: totalDistance in Batched is the OPTIMIZED route, so solo distance is usually higher.
+    // For simplicity: Solo Cost = (40 + (optimizedDistance/totalRides) * 12) * totalRides * 1.2 (20% detour for pooling)
+    const theoreticalSoloCost = (finance.totalRides * 40) + (finance.totalDistance * 1.2 * 12);
+    const savings = theoreticalSoloCost > finance.totalSpend
+      ? ((theoreticalSoloCost - finance.totalSpend) / theoreticalSoloCost) * 100
+      : 0;
+
     res.status(200).json(
       new ApiResponse(200, "Polling statistics retrieved", {
         date: date,
@@ -425,6 +472,11 @@ export const getPollingStats = async (req, res, next) => {
         clustering: clusteringStats,
         batched: batchedStats,
         rides: rideStats,
+        finance: {
+          monthlySpend: Math.round(finance.totalSpend),
+          savingsIndex: Math.round(savings),
+          theoreticalSoloCost: Math.round(theoreticalSoloCost)
+        }
       })
     );
   } catch (error) {

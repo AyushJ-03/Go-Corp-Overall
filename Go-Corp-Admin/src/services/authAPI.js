@@ -53,13 +53,30 @@ export const logoutUser = async () => {
 };
 
 export const getCurrentUser = () => {
-  try {
-    const user = localStorage.getItem('user');
-    return user ? JSON.parse(user) : null;
-  } catch (error) {
-    console.error('Error getting current user:', error);
-    return null;
-  }
+    try {
+        const user = localStorage.getItem('user');
+        return user ? JSON.parse(user) : null;
+    } catch (error) {
+        console.error('Error getting current user:', error);
+        return null;
+    }
+};
+
+export const getUserProfile = async () => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/user/profile`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            },
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to fetch profile');
+        return data.data.user;
+    } catch (error) {
+        console.error('Error fetching profile:', error);
+        throw error;
+    }
 };
 
 export const isAuthenticated = () => {

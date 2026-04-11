@@ -2,10 +2,10 @@ import ApiResponse from '../../utils/ApiResponse.js';
 import { validationResult } from 'express-validator';
 import { User } from './user.model.js';
 import { Office } from '../office/office.model.js';
-import { Company } from '../company/company.model.js';  
+import { Company } from '../company/company.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { BlacklistToken } from './blacklistToken.model.js';
-import { RideRequest } from '../ride/ride.model.js'; 
+import { RideRequest } from '../ride/ride.model.js';
 
 export const createUser = async (req, res, next) => {
   try {
@@ -120,9 +120,9 @@ export const logoutUser = async (req, res, next) => {
 export const updateUserProfile = async (req, res, next) => {
   try {
     const { name, contact, home_address, office_address, recent_locations, saved_locations } = req.body;
-    
+
     const user = await User.findById(req.user._id);
-    
+
     if (!user) {
       throw new ApiError(404, "User not found");
     }
@@ -167,7 +167,7 @@ export const getMyRides = async (req, res, next) => {
       .populate('invited_employee_ids', 'name contact');
 
     const activeStatuses = ["PENDING", "IN_CLUSTERING", "CLUSTERED", "BOOKED_SOLO", "ACCEPTED", "ARRIVED", "STARTED"];
-    
+
     const active = rides.filter(ride => activeStatuses.includes(ride.status));
     const past = rides.filter(ride => ["COMPLETED", "CANCELLED"].includes(ride.status));
 
@@ -182,15 +182,15 @@ export const getMyRides = async (req, res, next) => {
 
 export const searchUsers = async (req, res, next) => {
   try {
-    const { query } = req.query;
-    
+    const { query, office_id } = req.query;
+
     if (!query || query.length < 2) {
       return res.status(200).json(new ApiResponse(200, "Query too short", []));
     }
 
     const searchRegex = new RegExp(query, 'i');
 
-    const users = await User.find({
+    const searchCriteria = {
       company_id: req.user.company_id,
       _id: { $ne: req.user._id },
       $or: [
@@ -198,9 +198,15 @@ export const searchUsers = async (req, res, next) => {
         { "name.last_name": searchRegex },
         { email: searchRegex }
       ]
-    })
-    .select('name email contact')
-    .limit(10);
+    };
+
+    if (office_id) {
+      searchCriteria.office_id = office_id;
+    }
+
+    const users = await User.find(searchCriteria)
+      .select('name email contact')
+      .limit(10);
 
     res.status(200).json(new ApiResponse(200, "Users found", users));
   } catch (error) {
@@ -225,9 +231,9 @@ export const getUserSummary = async (req, res, next) => {
       status: { $in: ["PENDING", "IN_CLUSTERING", "CLUSTERED", "BOOKED_SOLO"] }
     });
 
-    res.status(200).json(new ApiResponse(200, "User summary retrieved", { 
-      rideCount, 
-      upcomingRides 
+    res.status(200).json(new ApiResponse(200, "User summary retrieved", {
+      rideCount,
+      upcomingRides
     }));
   } catch (error) {
     next(error || new ApiError(500, "Error fetching user summary"));
