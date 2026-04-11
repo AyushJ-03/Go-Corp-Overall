@@ -42,23 +42,24 @@ const calculateEstimatedFare = (distanceInKm) => {
 };
 
 /**
- * STEP 2 (REFINED): Find the 1st point where new ride's route joins the cluster's route
+ * STEP 2 (REFINED): Find the 1st point where new ride's route joins/diverges from the cluster's route
  */
-export const findFirstContactPoint = (newRoutePolyline, clusterPolyline, thresholdMeters = 50) => {
+export const findFirstContactPoint = (newRoutePolyline, clusterPolyline, thresholdMeters = 50, fromEnd = false) => {
   try {
     if (!newRoutePolyline || !newRoutePolyline.coordinates || newRoutePolyline.coordinates.length < 2) return null;
     if (!clusterPolyline || !clusterPolyline.coordinates || clusterPolyline.coordinates.length < 2) return null;
 
     const clusterLine = turf.lineString(clusterPolyline.coordinates);
+    const coordinates = fromEnd ? [...newRoutePolyline.coordinates].reverse() : newRoutePolyline.coordinates;
 
     // Iterate through points of the new route to find the first one near the cluster line
-    for (const coords of newRoutePolyline.coordinates) {
+    for (const coords of coordinates) {
       const point = turf.point(coords);
       const nearestPoint = turf.nearestPointOnLine(clusterLine, point);
       const distance = nearestPoint.properties.dist * 1000; // km to meters
 
       if (distance <= thresholdMeters) {
-        return coords; // This is our 1st point of contact
+        return coords; // This is our join/divergence point
       }
     }
 
@@ -95,8 +96,7 @@ export const isSimilarPickupLocation = (pickup1, pickup2, threshold = 200) => {
 
 /**
  * MAIN CLUSTERING LOGIC: can_cluster function
- * Condition 1: Similar pickup + similar drop + within time window
- * Condition 2: New pickup within route buffer of existing pickup polyline + similar drop + within time window
+ * Symmetric logic for To Office and From Office rides
  */
 export const can_cluster = async (newRide, existingCluster) => {
   try {
@@ -104,7 +104,7 @@ export const can_cluster = async (newRide, existingCluster) => {
     const newDrop = newRide.drop_location.coordinates;
     const newTime = newRide.scheduled_at;
 
-    // Get the first ride of the cluster to check similarity
+    // Get the first ride of the cluster to check direction and similarity
     const firstRideId = existingCluster.ride_ids[0];
     const firstRide = await RideRequest.findById(firstRideId);
     if (!firstRide) return false;
@@ -112,35 +112,66 @@ export const can_cluster = async (newRide, existingCluster) => {
     const existingPickup = firstRide.pickup_location.coordinates;
     const existingDrop = firstRide.drop_location.coordinates;
     const existingTime = existingCluster.scheduled_at;
+    
+    // Determine direction
+    const isToOffice = firstRide.destination_type === "OFFICE";
 
-    // Check time window first (required for both conditions)
+    // Check time window first (required for both directions)
     if (!isWithinTimeWindow(newTime, existingTime)) {
       return false;
     }
 
-    // Check drop location similarity (required for both conditions)
-    if (!isSimilarDropLocation(newDrop, existingDrop)) {
-      return false;
-    }
+    if (isToOffice) {
+      // TO OFFICE: Primary check is the shared destination (Office)
+      if (!isSimilarDropLocation(newDrop, existingDrop)) {
+        return false;
+      }
 
-    // CONDITION 1: Similar pickup location + similar drop + within time window
-    if (isSimilarPickupLocation(newPickup, existingPickup)) {
-      console.log(`[Clustering] Match found: Ride ${newRide._id} has similar pickup as cluster ${existingCluster._id}`);
-      return true;
-    }
+      // CONDITION 1: Similar pickup location
+      if (isSimilarPickupLocation(newPickup, existingPickup)) {
+        console.log(`[Clustering] Match found (TO OFFICE): Ride ${newRide._id} has similar pickup as cluster ${existingCluster._id}`);
+        return true;
+      }
 
-    // CONDITION 2 (REFINED): New route joins cluster route + pickup within 300m of join point
-    if (newRide.route_polyline && existingCluster.pickup_polyline) {
-      const contactPoint = findFirstContactPoint(newRide.route_polyline, existingCluster.pickup_polyline);
-      
-      if (contactPoint) {
-        // Check if either the new pickup OR the existing cluster proximity point is near this join point
-        const distToNewPickup = getDistance(newPickup, contactPoint);
-        const distToClusterCentroid = getDistance(existingCluster.pickup_centroid.coordinates, contactPoint);
+      // CONDITION 2: New route joins cluster route + pickup near join point
+      if (newRide.route_polyline && existingCluster.pickup_polyline) {
+        const contactPoint = findFirstContactPoint(newRide.route_polyline, existingCluster.pickup_polyline, 50, false);
+        
+        if (contactPoint) {
+          const distToNewPickup = getDistance(newPickup, contactPoint);
+          const distToClusterCentroid = getDistance(existingCluster.pickup_centroid.coordinates, contactPoint);
 
-        if (distToNewPickup <= 500 || distToClusterCentroid <= 500) {
-          console.log(`[Clustering] Match found: Ride ${newRide._id} contact point is near pickup (dist: ${Math.min(distToNewPickup, distToClusterCentroid).toFixed(0)}m)`);
-          return true;
+          if (distToNewPickup <= ROUTE_BUFFER_METERS || distToClusterCentroid <= ROUTE_BUFFER_METERS) {
+            console.log(`[Clustering] Match found (TO OFFICE): Ride ${newRide._id} join point near pickup (dist: ${Math.min(distToNewPickup, distToClusterCentroid).toFixed(0)}m)`);
+            return true;
+          }
+        }
+      }
+    } else {
+      // FROM OFFICE (Office to Home): Primary check is the shared origin (Office)
+      if (!isSimilarPickupLocation(newPickup, existingPickup)) {
+        return false;
+      }
+
+      // CONDITION 1: Similar drop location (Home)
+      if (isSimilarDropLocation(newDrop, existingDrop)) {
+        console.log(`[Clustering] Match found (FROM OFFICE): Ride ${newRide._id} has similar drop as cluster ${existingCluster._id}`);
+        return true;
+      }
+
+      // CONDITION 2: New route diverges from cluster route + drop near divergence point
+      if (newRide.route_polyline && existingCluster.pickup_polyline) {
+        // Search backwards from the drop location to find where the route joins/diverges from the cluster
+        const contactPoint = findFirstContactPoint(newRide.route_polyline, existingCluster.pickup_polyline, 50, true);
+        
+        if (contactPoint) {
+          const distToNewDrop = getDistance(newDrop, contactPoint);
+          const distToExistingDrop = getDistance(existingDrop, contactPoint);
+
+          if (distToNewDrop <= ROUTE_BUFFER_METERS || distToExistingDrop <= ROUTE_BUFFER_METERS) {
+            console.log(`[Clustering] Match found (FROM OFFICE): Ride ${newRide._id} divergence point near drop (dist: ${Math.min(distToNewDrop, distToExistingDrop).toFixed(0)}m)`);
+            return true;
+          }
         }
       }
     }

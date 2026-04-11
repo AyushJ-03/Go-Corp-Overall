@@ -227,15 +227,14 @@ const Dashboard = () => {
     // FETCH REAL ROAD ROUTE (OSRM) FOR PREVIEW
     useEffect(() => {
         const fetchPreview = async () => {
-            if (isValidPos(pickup.pos) && isValidPos(destination.pos)) {
+            // Determine active points: Use tempLocation if actively picking, else use committed state
+            // This enables "Live Preview" while the user is still moving the map pin
+            const activePickup = (bookingStep === 'pickingPickup' && tempLocation) ? tempLocation : pickup;
+            const activeDestination = (bookingStep === 'pickingDestination' && tempLocation) ? tempLocation : destination;
+
+            if (isValidPos(activePickup.pos) && isValidPos(activeDestination.pos)) {
                 try {
-                    // Coordinates in backend expect [lng, lat] for OSRM helper usually 
-                    // or [lat, lng] depending on implementation. 
-                    // Our updated backend helper takes absolute [lng, lat] for the URL.
-                    // But here we'll use a direct frontend call to OSRM or just wait for the ride object.
-                    // Actually, let's use the local API if we have a route for it.
-                    // For now, we'll fetch from OSRM directly from the frontend or use a backend proxy.
-                    const points = `${pickup.pos[1]},${pickup.pos[0]};${destination.pos[1]},${destination.pos[0]}`;
+                    const points = `${activePickup.pos[1]},${activePickup.pos[0]};${activeDestination.pos[1]},${activeDestination.pos[0]}`;
                     const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${points}?overview=full&geometries=geojson`);
                     const data = await res.json();
                     if (data.routes && data.routes[0]) {
@@ -250,10 +249,11 @@ const Dashboard = () => {
             }
         };
 
-        if (bookingStep === 'confirmSummary' || bookingStep === 'pickingDestination') {
+        // Trigger preview on summary screen OR while picking either endpoint
+        if (bookingStep === 'confirmSummary' || bookingStep === 'pickingDestination' || bookingStep === 'pickingPickup') {
             fetchPreview();
         }
-    }, [pickup.pos, destination.pos, bookingStep]);
+    }, [pickup.pos, destination.pos, tempLocation?.pos, bookingStep]);
 
     const handleSearch = useCallback(async (queryOverride) => {
         const q = typeof queryOverride === 'string' ? queryOverride : localQuery;
