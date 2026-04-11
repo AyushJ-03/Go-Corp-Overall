@@ -22,18 +22,42 @@ export default function Finance() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Get office ID from localStorage (set during login/auth)
-  const officeId = localStorage.getItem('officeId') || '6781b4d1e8b6c1234567890a';
+  const getOfficeId = () => {
+    const storedId = localStorage.getItem('officeId');
+    // If it's corrupted or missing, try to get it from the user object
+    if (!storedId || storedId === '[object Object]') {
+      try {
+        const user = JSON.parse(localStorage.getItem('user'));
+        return user?.office_id?._id || user?.office_id || null;
+      } catch (e) {
+        return null;
+      }
+    }
+    return storedId;
+  };
+
+  const officeId = getOfficeId();
 
   useEffect(() => {
-    fetchWalletData();
-  }, []);
+    if (officeId) {
+      fetchWalletData();
+    } else {
+      setError('Office session not found. Please log in again.');
+      setLoading(false);
+    }
+  }, [officeId]);
 
   const fetchWalletData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const walletData = await walletAPI.getWallet(officeId);
-      const transactionsData = await walletAPI.getTransactions(officeId);
+      
+      // Fetch data in parallel
+      const [walletData, transactionsData] = await Promise.all([
+        walletAPI.getWallet(officeId),
+        walletAPI.getTransactions(officeId)
+      ]);
+      
       setWallet(walletData);
       setTransactions(transactionsData);
     } catch (err) {
@@ -46,31 +70,87 @@ export default function Finance() {
 
   const financialStats = [
     { 
-      title: 'Total Balance', 
-      value: wallet ? `₹${wallet.balance?.toLocaleString() || 0}` : '₹0', 
+      title: 'Current Balance', 
+      value: wallet ? `₹${(wallet.balance || 0).toLocaleString()}` : '₹0', 
       icon: DollarSign, 
       trend: 'up', 
-      percentage: 15, 
-      color: 'green' 
+      percentage: 12, 
+      color: 'blue' 
     },
     { 
-      title: 'Blocked Amount', 
-      value: wallet ? `₹${wallet.blockedBalance?.toLocaleString() || 0}` : '₹0', 
+      title: 'Total Spent', 
+      value: `₹${transactions
+        .filter(t => t.type === 'DEBIT')
+        .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0)
+        .toLocaleString()}`, 
+      icon: ArrowUpRight, 
+      trend: 'up', 
+      percentage: 8, 
+      color: 'red' 
+    },
+    { 
+      title: 'Blocked for Rides', 
+      value: wallet ? `₹${(wallet.blockedBalance || 0).toLocaleString()}` : '₹0', 
       icon: Lock, 
       trend: 'down', 
-      percentage: 5, 
-      color: 'red' 
+      percentage: 3, 
+      color: 'yellow' 
+    },
+    { 
+      title: 'Average/Ride', 
+      value: transactions.filter(t => t.type === 'DEBIT').length > 0
+        ? `₹${Math.round(transactions.filter(t => t.type === 'DEBIT').reduce((sum, t) => sum + Math.abs(t.amount || 0), 0) / transactions.filter(t => t.type === 'DEBIT').length).toLocaleString()}`
+        : '₹0', 
+      icon: ChevronRight, 
+      trend: 'up', 
+      percentage: 2, 
+      color: 'green' 
     },
   ];
 
   // Calculate monthly totals
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+  
   const monthlyTotals = {
     received: transactions
-      .filter(t => t.type === 'CREDIT')
-      .reduce((sum, t) => sum + t.amount, 0),
+      .filter(t => {
+        const d = new Date(t.createdAt);
+        return t.type === 'CREDIT' && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      })
+      .reduce((sum, t) => sum + (t.amount || 0), 0),
     paid: transactions
-      .filter(t => t.type === 'DEBIT')
-      .reduce((sum, t) => sum + Math.abs(t.amount), 0),
+      .filter(t => {
+        const d = new Date(t.createdAt);
+        return t.type === 'DEBIT' && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      })
+      .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0),
+  };
+
+  const handleExportCSV = () => {
+    if (transactions.length === 0) return;
+    
+    const headers = ['Date', 'Description', 'Type', 'Amount', 'Status'];
+    const csvContent = [
+      headers.join(','),
+      ...transactions.map(t => [
+        new Date(t.createdAt).toLocaleDateString(),
+        `"${t.description || ''}"`,
+        t.type,
+        t.amount,
+        t.status || 'SUCCESS'
+      ].join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `transactions_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleAddFund = async (e) => {
@@ -83,17 +163,21 @@ export default function Finance() {
     try {
       setIsProcessing(true);
       setError(null);
+      
+      // Call real backend endpoint
       await walletAPI.addMoney(officeId, parseFloat(fundAmount));
+      
+      // Visual feedback: brief delay to simulate processing and let backend settle
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
       // Refresh wallet data
       await fetchWalletData();
       
       setFundAmount('');
       setShowAddFund(false);
-      // Show success message (you can add a toast notification here)
-      console.log('Funds added successfully');
+      // Logic for toast could go here
     } catch (err) {
-      setError(err.message || 'Failed to add funds');
+      setError(err.message || 'Failed to add funds. Please check your connection.');
       console.error('Error adding funds:', err);
     } finally {
       setIsProcessing(false);
@@ -102,11 +186,12 @@ export default function Finance() {
 
   const formatTransactionType = (type) => {
     const typeMap = {
-      'CREDIT': 'Credit',
-      'DEBIT': 'Debit',
-      'BLOCK': 'Blocked',
+      'CREDIT': 'Recharge',
+      'DEBIT': 'Ride Payment',
+      'BLOCK': 'Fare Blocked',
+      'RELEASE': 'Refund/Release',
     };
-    return typeMap[type] || type;
+    return typeMap[type?.toUpperCase()] || type;
   };
 
   const getStatusBadgeColor = (status) => {
@@ -258,7 +343,10 @@ export default function Finance() {
           <p className="text-2xl font-bold text-red-600 mt-2">₹{monthlyTotals.paid.toLocaleString()}</p>
         </div>
 
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-[2.5rem] p-6 border border-blue-200 shadow-sm">
+        <div 
+          onClick={handleExportCSV}
+          className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-[2.5rem] p-6 border border-blue-200 shadow-sm cursor-pointer hover:shadow-md transition-all active:scale-[0.98]"
+        >
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-blue-200 rounded-xl">
               <Download size={24} className="text-dash-blue" />
@@ -266,7 +354,7 @@ export default function Finance() {
             <span className="text-xs font-bold text-dash-blue bg-white px-3 py-1 rounded-lg">Download</span>
           </div>
           <p className="text-dash-muted text-sm font-bold">Export Statement</p>
-          <p className="text-lg font-bold text-dash-text mt-2">PDF / CSV</p>
+          <p className="text-lg font-bold text-dash-text mt-2">Export CSV</p>
         </div>
       </div>
 
@@ -318,12 +406,16 @@ export default function Finance() {
                               ? 'bg-green-100' 
                               : transaction.type === 'BLOCK'
                               ? 'bg-yellow-100'
+                              : transaction.type === 'RELEASE'
+                              ? 'bg-blue-100'
                               : 'bg-red-100'
                           }`}>
                             {transaction.type === 'CREDIT' ? (
                               <ArrowDownLeft size={16} className="text-green-600" />
                             ) : transaction.type === 'BLOCK' ? (
                               <Lock size={16} className="text-yellow-600" />
+                            ) : transaction.type === 'RELEASE' ? (
+                              <ArrowDownLeft size={16} className="text-blue-600" />
                             ) : (
                               <ArrowUpRight size={16} className="text-red-600" />
                             )}
@@ -333,6 +425,8 @@ export default function Finance() {
                               ? 'text-green-600' 
                               : transaction.type === 'BLOCK'
                               ? 'text-yellow-600'
+                              : transaction.type === 'RELEASE'
+                              ? 'text-blue-600'
                               : 'text-red-600'
                           }`}>
                             {formatTransactionType(transaction.type)}
