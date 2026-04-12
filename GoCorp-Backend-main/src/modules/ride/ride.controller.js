@@ -159,45 +159,38 @@ export const bookRide = async (req, res, next) => {
  */
 export const getCurrentRide = async (req, res, next) => {
   try {
-    const userId = req.user._id;
+    const user_id = req.user._id;
 
-    // Find latest active ride (not completed or cancelled)
     const ride = await RideRequest.findOne({
-      employee_id: userId,
-      status: { $in: ["PENDING", "IN_CLUSTERING", "CLUSTERED", "ACCEPTED", "ARRIVED", "STARTED"] },
+      employee_id: user_id,
+      status: { $nin: ["REJECTED", "CANCELLED", "COMPLETED", "DROPPED_OFF"] }
     })
       .sort({ createdAt: -1 })
-      .populate("employee_id", "name email profile_image")
-      .populate("office_id", "name office_location shift_start shift_end")
-      .populate("invited_employee_ids", "name email profile_image");
+      .populate('employee_id', 'name email contact profile_image')
+      .populate('office_id', 'name office_location shift_start shift_end');
 
     if (!ride) {
       return res.status(200).json(new ApiResponse(200, "No active ride found", null));
     }
 
-    // Reuse population logic
-    const responseData = { ...ride.toJSON() };
+    // NEW: Include polling/clustering info for frontend visualization
+    let responseData = { ...ride.toJSON() };
 
-    if (ride.status === "IN_CLUSTERING") {
-      const { Clustering } = await import("../polling/clustering.model.js");
-      const cluster = await Clustering.findOne({ ride_ids: ride._id });
-      if (cluster) {
-        responseData.clustering = {
-          cluster_id: cluster._id,
-          current_size: cluster.current_size,
-          status: cluster.status,
-          pickup_polyline: cluster.pickup_polyline,
-          ride_ids: cluster.ride_ids,
-        };
+    // Check if ride is part of an active cluster/batch
+    if (!["CANCELLED", "COMPLETED", "DROPPED_OFF", "REJECTED"].includes(ride.status)) {
+      const { Clustering } = await import('../polling/clustering.model.js');
+      const { Batched } = await import('../polling/batched.model.js');
+
+      const batchId = ride.batch_id;
+      const clusterId = ride.cluster_id;
+
+      let batch = batchId ? await Batched.findById(batchId).populate('driver_id', 'name contact vehicle driver_location') : null;
+      let cluster = clusterId ? await Clustering.findById(clusterId) : null;
+
+      if (!batch && cluster?.batch_id) {
+        batch = await Batched.findById(cluster.batch_id).populate('driver_id', 'name contact vehicle driver_location');
       }
-    }
 
-    if (
-      ride.batch_id ||
-      ["CLUSTERED", "ACCEPTED", "ARRIVED", "STARTED"].includes(ride.status)
-    ) {
-      const { Batched } = await import("../polling/batched.model.js");
-      const batch = await Batched.findById(ride.batch_id);
       if (batch) {
         responseData.batch = {
           batch_id: batch._id,
@@ -205,13 +198,73 @@ export const getCurrentRide = async (req, res, next) => {
           status: batch.status,
           pickup_polyline: batch.pickup_polyline,
           driver_id: batch.driver_id,
+          estimated_fare: batch.estimated_fare
         };
+        
+        // Final Status Repair: If batch is accepted, ride is ACCEPTED
+        if (batch.status === 'DRIVER_ACCEPTED' || batch.driver_accepted) {
+          if (!["STARTED", "ARRIVED", "DROPPED_OFF", "COMPLETED"].includes(ride.status)) {
+            responseData.status = "ACCEPTED";
+          }
+        } else if (ride.status !== 'CLUSTERED' && ride.status !== 'COMPLETED') {
+          responseData.status = 'CLUSTERED';
+        }
+      } else if (cluster) {
+        responseData.clustering = {
+          cluster_id: cluster._id,
+          current_size: cluster.current_size,
+          status: cluster.status,
+          pickup_polyline: cluster.pickup_polyline,
+        };
+        if (ride.status === 'PENDING') {
+          responseData.status = 'IN_CLUSTERING';
+        }
+      }
+
+      // Load all participants from the group
+      const targetRides = batch?.ride_ids || cluster?.ride_ids || [];
+      if (targetRides.length > 0) {
+        const groupRides = await RideRequest.find({ _id: { $in: targetRides } })
+          .populate('employee_id', 'name email contact profile_image')
+          .populate('invited_employee_ids', 'name email contact profile_image');
+
+        // Sort groupRides to match targetRides order
+        const ridesMap = new Map(groupRides.map(r => [r._id.toString(), r]));
+        const sortedRides = targetRides.map(id => ridesMap.get(id.toString())).filter(Boolean);
+
+        const participantsList = [];
+        sortedRides.forEach((gr, bIdx) => {
+          if (gr.employee_id) {
+            participantsList.push({
+              ...gr.employee_id.toObject(),
+              is_requester: true,
+              ride_id: gr._id,
+              booking_index: bIdx,
+              pickup_location: gr.pickup_location,
+              drop_location: gr.drop_location,
+              contact: gr.employee_id.contact
+            });
+          }
+          gr.invited_employee_ids.forEach(inv => {
+            participantsList.push({
+              ...inv.toObject(),
+              is_requester: false,
+              ride_id: gr._id,
+              booking_index: bIdx,
+              pickup_location: gr.pickup_location,
+              drop_location: gr.drop_location,
+              contact: inv.contact
+            });
+          });
+        });
+
+        responseData.group_participants = participantsList;
       }
     }
 
-    return res.status(200).json(new ApiResponse(200, "Active ride fetched", responseData));
+    res.status(200).json(new ApiResponse(200, "Current ride retrieved", responseData));
   } catch (error) {
-    next(error);
+    next(error || new ApiError(500, "Error fetching current ride"));
   }
 };
 
@@ -373,12 +426,12 @@ export const getRideById = async (req, res, next) => {
       const batchId = ride.batch_id;
       const clusterId = ride.cluster_id;
 
-      let batch = batchId ? await Batched.findById(batchId) : null;
+      let batch = batchId ? await Batched.findById(batchId).populate('driver_id', 'name contact vehicle driver_location') : null;
       let cluster = clusterId ? await Clustering.findById(clusterId) : null;
 
       // BREADCRUMB SAFETY: If we found a cluster but it points to a batch, follow it
       if (!batch && cluster?.batch_id) {
-        batch = await Batched.findById(cluster.batch_id);
+        batch = await Batched.findById(cluster.batch_id).populate('driver_id', 'name contact vehicle driver_location');
       }
 
       // 2. STATUS REPAIR FAILSAFE:
@@ -390,10 +443,15 @@ export const getRideById = async (req, res, next) => {
           status: batch.status,
           pickup_polyline: batch.pickup_polyline,
           driver_id: batch.driver_id,
+          estimated_fare: batch.estimated_fare,
         };
-        // Forced Repair: Any ride in a batch is CLUSTERED
-        if (ride.status !== 'CLUSTERED' && ride.status !== 'COMPLETED') {
-          console.log(`[Sync-Repair] Forcing Ride ${ride._id} status to CLUSTERED (was ${ride.status})`);
+        
+        // Final Status Repair: If batch is accepted, ride is ACCEPTED
+        if (batch.status === 'DRIVER_ACCEPTED' || batch.driver_accepted) {
+          if (!["STARTED", "ARRIVED", "DROPPED_OFF", "COMPLETED"].includes(ride.status)) {
+            responseData.status = "ACCEPTED";
+          }
+        } else if (ride.status !== 'CLUSTERED' && ride.status !== 'COMPLETED') {
           responseData.status = 'CLUSTERED';
         }
       } else if (cluster) {
@@ -788,12 +846,13 @@ export const getLatestRideForAdmin = async (req, res, next) => {
         const sortedRides = targetRides.map(id => ridesMap.get(id.toString())).filter(Boolean);
 
         const participantsList = [];
-        sortedRides.forEach(gr => {
+        sortedRides.forEach((gr, bIdx) => {
           if (gr.employee_id) {
             participantsList.push({
               ...gr.employee_id.toObject(),
               is_requester: true,
               ride_id: gr._id,
+              booking_index: bIdx,
               pickup_location: gr.pickup_location,
               drop_location: gr.drop_location,
               contact: gr.employee_id.contact
@@ -804,6 +863,7 @@ export const getLatestRideForAdmin = async (req, res, next) => {
               ...inv.toObject(),
               is_requester: false,
               ride_id: gr._id,
+              booking_index: bIdx,
               pickup_location: gr.pickup_location,
               drop_location: gr.drop_location,
               contact: inv.contact

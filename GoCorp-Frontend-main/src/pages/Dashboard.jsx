@@ -19,6 +19,8 @@ import {
     SchedulingView 
 } from '../components/DashboardViews';
 import CoworkerSearchView from '../components/CoworkerSearchView';
+import AcceptedRidePopup from '../components/rides/AcceptedRidePopup';
+import { useNavigate } from 'react-router-dom';
 
 export const ChangeView = ({ center }) => {
   const map = useMapEvents({});
@@ -58,9 +60,13 @@ export const MapEventsHandler = ({ onMoveStart, onMoveEnd, onReverseGeocode, boo
 const Dashboard = () => {
     const { user, isServerOffline, checkStatus, setShowBottomNav, updateProfile } = useUser();
     const { showToast } = useUI();
+    const navigate = useNavigate();
     
     // UI Logic State
     const [bookingStep, setBookingStep] = useState('home');
+    const [activeRide, setActiveRide] = useState(null);
+    const [showAcceptedPopup, setShowAcceptedPopup] = useState(false);
+    const prevStatusRef = useRef(null);
     const [previousStep, setPreviousStep] = useState('home'); // Dynamic navigation
     const [tempLocation, setTempLocation] = useState(null); // Persistence fix
     
@@ -223,6 +229,38 @@ const Dashboard = () => {
             handleCurrentLocation();
         }
     }, [user, handleCurrentLocation, bookingStep]);
+
+    // RIDE POLLING: Monitor active rides and show popup on acceptance
+    useEffect(() => {
+        if (!user) return;
+
+        const pollActiveRide = async () => {
+            try {
+                const res = await api.get('/ride/current-ride');
+                const ride = res.data?.data;
+                
+                if (ride) {
+                    // Detect status transition to ACCEPTED
+                    if (ride.status === 'ACCEPTED' && prevStatusRef.current && prevStatusRef.current !== 'ACCEPTED') {
+                        if (bookingStep === 'home') {
+                            setActiveRide(ride);
+                            setShowAcceptedPopup(true);
+                        }
+                    }
+                    prevStatusRef.current = ride.status;
+                } else {
+                    prevStatusRef.current = null;
+                }
+            } catch (err) {
+                console.error("Dashboard polling error", err);
+            }
+        };
+
+        const interval = setInterval(pollActiveRide, 10000);
+        pollActiveRide(); // Initial check
+
+        return () => clearInterval(interval);
+    }, [user, bookingStep]);
 
     // FETCH REAL ROAD ROUTE (OSRM) FOR PREVIEW
     useEffect(() => {
@@ -666,6 +704,16 @@ const Dashboard = () => {
             <div className={`transition-opacity duration-500 ${isServerOffline ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
                 {MainViewContent}
             </div>
+
+            <AcceptedRidePopup 
+                visible={showAcceptedPopup}
+                driver={activeRide?.batch?.driver_id}
+                onViewTicket={() => {
+                    setShowAcceptedPopup(false);
+                    navigate(`/ride/${activeRide._id}`);
+                }}
+                onDismiss={() => setShowAcceptedPopup(false)}
+            />
             
             {/* --- MODALS --- */}
 
