@@ -121,8 +121,8 @@ const RideDetails = () => {
     const rawPolyline = ride.batch?.pickup_polyline?.coordinates || ride.clustering?.pickup_polyline?.coordinates || [];
     const polyline = rawPolyline.map(p => [p[1], p[0]]);
 
-    // NEW: Handle transition to ActiveRideTicket for accepted rides
-    if (["ACCEPTED", "ARRIVED", "STARTED"].includes(ride.status)) {
+    // NEW: Handle transition to ActiveRideTicket for accepted and completed rides
+    if (["ACCEPTED", "ARRIVED", "STARTED", "COMPLETED"].includes(ride.status)) {
         return (
             <ActiveRideTicket 
                 ride={ride} 

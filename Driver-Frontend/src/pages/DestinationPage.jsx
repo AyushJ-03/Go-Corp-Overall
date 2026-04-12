@@ -194,7 +194,7 @@ const DestinationPage = () => {
         console.error('Wallet deduction flow failed:', error);
       }
       
-      navigate('/payment-success')
+      navigate('/complete-ride')
     }
   }
 

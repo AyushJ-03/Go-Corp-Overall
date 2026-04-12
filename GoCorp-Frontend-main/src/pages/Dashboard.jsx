@@ -240,15 +240,33 @@ const Dashboard = () => {
                 const ride = res.data?.data;
                 
                 if (ride) {
+                    // Update active ride locally
+                    setActiveRide(ride);
+
                     // Detect status transition to ACCEPTED
                     if (ride.status === 'ACCEPTED' && prevStatusRef.current && prevStatusRef.current !== 'ACCEPTED') {
                         if (bookingStep === 'home') {
-                            setActiveRide(ride);
                             setShowAcceptedPopup(true);
                         }
                     }
+                    
+                    // If ride just completed, persist it for summary but update status
+                    if (ride.status === 'COMPLETED') {
+                        setActiveRide(ride);
+                        if (prevStatusRef.current !== 'COMPLETED' && bookingStep === 'home') {
+                             // Silent cleanup
+                        }
+                    } 
                     prevStatusRef.current = ride.status;
+
                 } else {
+                    // No active ride found (could have just completed or cancelled)
+                    if (activeRide) {
+                        setActiveRide(null);
+                        if (prevStatusRef.current && prevStatusRef.current !== 'COMPLETED') {
+                             showToast('Ride finished.', 'success');
+                        }
+                    }
                     prevStatusRef.current = null;
                 }
             } catch (err) {
@@ -492,7 +510,6 @@ const Dashboard = () => {
                 scheduled_at: scheduledTime.toISOString(),
                 invited_employee_ids: invitedEmployees.map(e => e._id)
             });
-            showToast('Ride requested!', 'success');
             
             // Update Recent Locations (non-office location)
             const nonOfficeLoc = pickup.addr === officeAddress ? destination : pickup;
@@ -501,6 +518,7 @@ const Dashboard = () => {
             }
 
             setBookingStep('home');
+            showToast('Ride requested!', 'success');
             setInvitedEmployees([]);
             setShowConfirmBooking(false);
             

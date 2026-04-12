@@ -16,6 +16,7 @@ import {
 import { routeRideRequest } from "../polling/polling.service.js";
 import { RideBatch } from "./batch.model.js";
 import { Batched } from "../polling/batched.model.js";
+import { Clustering } from "../polling/clustering.model.js";
 import { validationResult } from "express-validator"
 
 export const bookRide = async (req, res, next) => {
@@ -163,7 +164,7 @@ export const getCurrentRide = async (req, res, next) => {
 
     const ride = await RideRequest.findOne({
       employee_id: user_id,
-      status: { $nin: ["REJECTED", "CANCELLED", "COMPLETED", "DROPPED_OFF"] }
+      status: { $nin: ["REJECTED", "CANCELLED"] }
     })
       .sort({ createdAt: -1 })
       .populate('employee_id', 'name email contact profile_image')
@@ -177,18 +178,22 @@ export const getCurrentRide = async (req, res, next) => {
     let responseData = { ...ride.toJSON() };
 
     // Check if ride is part of an active cluster/batch
-    if (!["CANCELLED", "COMPLETED", "DROPPED_OFF", "REJECTED"].includes(ride.status)) {
-      const { Clustering } = await import('../polling/clustering.model.js');
-      const { Batched } = await import('../polling/batched.model.js');
-
+    if (!["CANCELLED", "REJECTED"].includes(ride.status)) {
       const batchId = ride.batch_id;
       const clusterId = ride.cluster_id;
 
-      let batch = batchId ? await Batched.findById(batchId).populate('driver_id', 'name contact vehicle driver_location') : null;
+      let batch = batchId ? await Batched.findById(batchId).populate('driver_id', 'name contact vehicle driver_location profile_pic status') : null;
       let cluster = clusterId ? await Clustering.findById(clusterId) : null;
 
+      // ATOMIC REPAIR: If we have a cluster but it points to a batch, follow it
       if (!batch && cluster?.batch_id) {
-        batch = await Batched.findById(cluster.batch_id).populate('driver_id', 'name contact vehicle driver_location');
+        batch = await Batched.findById(cluster.batch_id).populate('driver_id', 'name contact vehicle driver_location profile_pic status');
+        
+        // Hard-link repair: Fix the ride document if batch_id is missing
+        if (batch) {
+          await RideRequest.findByIdAndUpdate(ride._id, { batch_id: batch._id, cluster_id: null });
+          console.log(`[Sync-Repair] Hard-linked ride ${ride._id} to batch ${batch._id}`);
+        }
       }
 
       if (batch) {
@@ -197,11 +202,11 @@ export const getCurrentRide = async (req, res, next) => {
           batch_size: batch.batch_size,
           status: batch.status,
           pickup_polyline: batch.pickup_polyline,
-          driver_id: batch.driver_id,
+          driver_id: batch.driver_id, // This is now a populated object
           estimated_fare: batch.estimated_fare
         };
         
-        // Final Status Repair: If batch is accepted, ride is ACCEPTED
+        // Status Sync: If batch is accepted, ensure ride reflects it
         if (batch.status === 'DRIVER_ACCEPTED' || batch.driver_accepted) {
           if (!["STARTED", "ARRIVED", "DROPPED_OFF", "COMPLETED"].includes(ride.status)) {
             responseData.status = "ACCEPTED";
@@ -414,28 +419,25 @@ export const getRideById = async (req, res, next) => {
     // NEW: Include polling/clustering info for frontend visualization
     let responseData = { ...ride.toJSON() };
 
-    // Check if ride is part of an active cluster/batch even if status is PENDING/IN_CLUSTERING
-    // This solves the sync issue for joiners who might still see 'PENDING'
-    if (!["CANCELLED", "COMPLETED", "DROPPED_OFF", "REJECTED"].includes(ride.status)) {
-      const { Clustering } = await import('../polling/clustering.model.js');
-      const { Batched } = await import('../polling/batched.model.js');
-
-      const rideObjectId = new mongoose.Types.ObjectId(ride._id);
-
-      // 1. ATOMIC LOAD: Use the hard-links established by the polling service
+    // Check if ride is part of an active cluster/batch
+    if (!["CANCELLED", "REJECTED"].includes(ride.status)) {
       const batchId = ride.batch_id;
       const clusterId = ride.cluster_id;
 
-      let batch = batchId ? await Batched.findById(batchId).populate('driver_id', 'name contact vehicle driver_location') : null;
+      let batch = batchId ? await Batched.findById(batchId).populate('driver_id', 'name contact vehicle driver_location profile_pic status') : null;
       let cluster = clusterId ? await Clustering.findById(clusterId) : null;
 
-      // BREADCRUMB SAFETY: If we found a cluster but it points to a batch, follow it
+      // ATOMIC REPAIR: Check both ways to find the batch
       if (!batch && cluster?.batch_id) {
-        batch = await Batched.findById(cluster.batch_id).populate('driver_id', 'name contact vehicle driver_location');
+        batch = await Batched.findById(cluster.batch_id).populate('driver_id', 'name contact vehicle driver_location profile_pic status');
+        
+        // Fix the ride document if batch_id is missing
+        if (batch) {
+          await RideRequest.findByIdAndUpdate(ride._id, { batch_id: batch._id, cluster_id: null });
+          console.log(`[Sync-Repair] Hard-linked ride ${ride._id} to batch ${batch._id}`);
+        }
       }
 
-      // 2. STATUS REPAIR FAILSAFE:
-      // If the Ride is physically in a group but the record is lagging, repair it on-the-fly
       if (batch) {
         responseData.batch = {
           batch_id: batch._id,
@@ -446,7 +448,6 @@ export const getRideById = async (req, res, next) => {
           estimated_fare: batch.estimated_fare,
         };
         
-        // Final Status Repair: If batch is accepted, ride is ACCEPTED
         if (batch.status === 'DRIVER_ACCEPTED' || batch.driver_accepted) {
           if (!["STARTED", "ARRIVED", "DROPPED_OFF", "COMPLETED"].includes(ride.status)) {
             responseData.status = "ACCEPTED";
@@ -461,9 +462,7 @@ export const getRideById = async (req, res, next) => {
           status: cluster.status,
           pickup_polyline: cluster.pickup_polyline,
         };
-        // Forced Repair: Any ride in an active cluster is IN_CLUSTERING
         if (ride.status === 'PENDING') {
-          console.log(`[Sync-Repair] Forcing Ride ${id} status to IN_CLUSTERING (was PENDING)`);
           responseData.status = 'IN_CLUSTERING';
         }
       }
@@ -803,11 +802,11 @@ export const getLatestRideForAdmin = async (req, res, next) => {
       const batchId = ride.batch_id;
       const clusterId = ride.cluster_id;
 
-      let batch = batchId ? await Batched.findById(batchId) : null;
+      let batch = batchId ? await Batched.findById(batchId).populate('driver_id', 'name contact vehicle driver_location profile_pic status') : null;
       let cluster = clusterId ? await Clustering.findById(clusterId) : null;
 
       if (!batch && cluster?.batch_id) {
-        batch = await Batched.findById(cluster.batch_id);
+        batch = await Batched.findById(cluster.batch_id).populate('driver_id', 'name contact vehicle driver_location profile_pic status');
       }
 
       if (batch) {
