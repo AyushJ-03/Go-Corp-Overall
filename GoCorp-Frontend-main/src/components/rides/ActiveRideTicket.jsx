@@ -218,7 +218,7 @@ const ActiveRideTicket = ({
                           onClick={onCancelRequest}
                           className='w-full py-6 bg-white hover:bg-rose-50 text-rose-500 border border-slate-200 rounded-[2rem] text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all'
                         >
-                          Cancel Request
+                          {ride.is_owner ? 'Cancel Request' : 'Leave Ride'}
                         </button>
                     )}
                 </div>

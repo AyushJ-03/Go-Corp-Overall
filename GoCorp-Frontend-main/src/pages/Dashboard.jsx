@@ -243,6 +243,11 @@ const Dashboard = () => {
                     // Update active ride locally
                     setActiveRide(ride);
 
+                    // Detect demotion from Batch to Clustering pool
+                    if (ride.status === 'IN_CLUSTERING' && (prevStatusRef.current === 'CLUSTERED' || prevStatusRef.current === 'BOOKED_SOLO')) {
+                        showToast('Your group was modified. Finding new matches...', 'info');
+                    }
+                    
                     // Detect status transition to ACCEPTED
                     if (ride.status === 'ACCEPTED' && prevStatusRef.current && prevStatusRef.current !== 'ACCEPTED') {
                         if (bookingStep === 'home') {

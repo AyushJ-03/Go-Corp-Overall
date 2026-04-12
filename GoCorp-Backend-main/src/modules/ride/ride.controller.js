@@ -13,7 +13,7 @@ import {
   findRidesInvitingEmployee,
   getEmployeesInRideGroup
 } from "./ride.service.js";
-import { routeRideRequest } from "../polling/polling.service.js";
+import { routeRideRequest, dissolveGroupAndReturnToPool } from "../polling/polling.service.js";
 import { RideBatch } from "./batch.model.js";
 import { Batched } from "../polling/batched.model.js";
 import { Clustering } from "../polling/clustering.model.js";
@@ -162,9 +162,13 @@ export const getCurrentRide = async (req, res, next) => {
   try {
     const user_id = req.user._id;
 
+    // MODIFIED: Search for rides where user is requester OR invited guest
     const ride = await RideRequest.findOne({
-      employee_id: user_id,
-      status: { $nin: ["REJECTED", "CANCELLED"] }
+      $or: [
+        { employee_id: user_id },
+        { invited_employee_ids: user_id }
+      ],
+      status: { $nin: ["REJECTED", "CANCELLED", "COMPLETED"] } // Added COMPLETED safety
     })
       .sort({ createdAt: -1 })
       .populate('employee_id', 'name email contact profile_image')
@@ -174,8 +178,14 @@ export const getCurrentRide = async (req, res, next) => {
       return res.status(200).json(new ApiResponse(200, "No active ride found", null));
     }
 
+    // NEW: Role detection
+    const isOwner = ride.employee_id._id.toString() === user_id.toString();
+
     // NEW: Include polling/clustering info for frontend visualization
-    let responseData = { ...ride.toJSON() };
+    let responseData = { 
+      ...ride.toJSON(),
+      is_owner: isOwner 
+    };
 
     // Check if ride is part of an active cluster/batch
     if (!["CANCELLED", "REJECTED"].includes(ride.status)) {
@@ -372,30 +382,58 @@ export const cancelRide = async (req, res, next) => {
   try {
     const { ride_id } = req.params;
     const { cancel_reason } = req.body;
-
-    if (!ride_id.match(/^[0-9a-fA-F]{24}$/)) {
-      throw new ApiError(400, "Invalid ride ID format");
-    }
+    const userId = req.user._id.toString();
 
     const ride = await RideRequest.findById(ride_id);
     if (!ride) throw new ApiError(404, "Ride not found");
 
-    // Ensure the requesting user owns this ride
-    if (ride.employee_id.toString() !== req.user._id.toString()) {
+    const isOwner = ride.employee_id.toString() === userId;
+    const isGuest = ride.invited_employee_ids.some(id => id.toString() === userId);
+
+    if (!isOwner && !isGuest) {
       throw new ApiError(403, "You are not authorized to cancel this ride");
     }
 
-    // Only allow cancellation of PENDING or IN_CLUSTERING rides
-    if (!["PENDING", "IN_CLUSTERING"].includes(ride.status)) {
-      throw new ApiError(400, `Cannot cancel a ride with status: ${ride.status}`);
+    // Safety Guard: Cannot cancel if a Pilot has already accepted
+    if (ride.batch_id) {
+      const batch = await Batched.findById(ride.batch_id);
+      if (batch && ["DRIVER_ACCEPTED", "IN_TRANSIT", "COMPLETED"].includes(batch.status)) {
+        throw new ApiError(400, "Cannot cancel once a Pilot has accepted the ride.");
+      }
     }
 
-    ride.status = "CANCELLED";
-    ride.cancelled_at = new Date();
-    ride.cancel_reason = cancel_reason || "Cancelled by user";
-    await ride.save();
+    // Identify if the group needs dissolution
+    const groupId = ride.batch_id || ride.cluster_id;
+    const groupType = ride.batch_id ? 'batch' : 'cluster';
 
-    res.status(200).json(new ApiResponse(200, "Ride cancelled successfully", ride));
+    if (isOwner) {
+      // Branch A: Owner cancels -> Whole RideRequest dies
+      ride.status = "CANCELLED";
+      ride.cancelled_at = new Date();
+      ride.cancel_reason = cancel_reason || "Cancelled by owner";
+      await ride.save();
+
+      // Dissolve group if it exists (excluding this cancelled ride)
+      if (groupId) {
+        await dissolveGroupAndReturnToPool(groupId, groupType, [ride._id.toString()]);
+      }
+    } else {
+      // Branch B: Guest cancels -> Only remove guest from the booking
+      await RideRequest.findByIdAndUpdate(ride._id, {
+        $pull: { invited_employee_ids: req.user._id }
+      });
+
+      // Dissolve group if it exists (the RideRequest itself survives but changed composition)
+      if (groupId) {
+        // We dissolve even if it's "just" a guest leaving, as the route/fare needs refresh
+        // and user wants all batched cancellations to go back to clustering pool.
+        await dissolveGroupAndReturnToPool(groupId, groupType, []); 
+      }
+    }
+
+    res.status(200).json(new ApiResponse(200, "Cancellation processed successfully", { 
+      type: isOwner ? "FULL_CANCEL" : "GUEST_REMOVAL" 
+    }));
   } catch (error) {
     next(error || new ApiError(500, "Error cancelling ride"));
   }
@@ -416,8 +454,19 @@ export const getRideById = async (req, res, next) => {
 
     if (!ride) throw new ApiError(404, "Ride not found");
 
+    const userId = req.user._id.toString();
+    const isOwner = ride.employee_id._id.toString() === userId;
+    const isGuest = ride.invited_employee_ids.some(id => id._id.toString() === userId);
+
+    if (!isOwner && !isGuest) {
+      throw new ApiError(403, "You are not authorized to view this ride");
+    }
+
     // NEW: Include polling/clustering info for frontend visualization
-    let responseData = { ...ride.toJSON() };
+    let responseData = { 
+      ...ride.toJSON(),
+      is_owner: isOwner
+    };
 
     // Check if ride is part of an active cluster/batch
     if (!["CANCELLED", "REJECTED"].includes(ride.status)) {
