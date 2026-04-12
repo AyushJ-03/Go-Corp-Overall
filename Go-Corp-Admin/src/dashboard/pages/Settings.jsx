@@ -1,7 +1,81 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Clock, Shield, Bell, MapPin, Save, RefreshCw } from 'lucide-react';
+import * as adminAPI from '../../services/adminAPI';
+import * as authAPI from '../../services/authAPI';
 
 export default function Settings() {
+  const [workingDays, setWorkingDays] = useState(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
+  const [startTime, setStartTime] = useState("09:00");
+  const [endTime, setEndTime] = useState("18:30");
+  const [loading, setLoading] = useState(false);
+  const [activeOfficeId, setActiveOfficeId] = useState(null);
+
+  const DAYS_MAP = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 0: 'Sun' };
+  const REVERSE_DAYS_MAP = { 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6, 'Sun': 0 };
+
+  useEffect(() => {
+    initializeSettings();
+  }, []);
+
+  const initializeSettings = async () => {
+    try {
+      setLoading(true);
+      let id = localStorage.getItem('officeId');
+      
+      if (!id || id === '[object Object]') {
+        const profile = await authAPI.getUserProfile();
+        id = typeof profile.office_id === 'object' ? profile.office_id._id : profile.office_id;
+        localStorage.setItem('officeId', id);
+      }
+      
+      setActiveOfficeId(id);
+      await loadOfficeData(id);
+    } catch (error) {
+      console.error("Settings initialization failed:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadOfficeData = async (oid) => {
+    try {
+      const officeData = await adminAPI.getOfficeDetails(oid);
+      if (officeData) {
+        if (officeData.shift_start) setStartTime(officeData.shift_start);
+        if (officeData.shift_end) setEndTime(officeData.shift_end);
+        if (officeData.working_days && Array.isArray(officeData.working_days)) {
+           const validDays = officeData.working_days
+              .filter(d => d != null)
+              .map(d => DAYS_MAP[d])
+              .filter(Boolean);
+           setWorkingDays(validDays);
+        }
+      }
+    } catch (error) {
+      console.error("Office data load failed:", error);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!activeOfficeId) return;
+    try {
+      const numericDays = workingDays
+         .map(d => REVERSE_DAYS_MAP[d])
+         .filter(d => d != null)
+         .sort((a, b) => a - b);
+         
+      await adminAPI.updateOfficeSettings(activeOfficeId, {
+         shift_start: startTime,
+         shift_end: endTime,
+         working_days: numericDays
+      });
+      alert("Settings saved successfully!");
+    } catch (error) {
+      console.error("Failed to save settings:", error);
+      alert("Failed to save settings.");
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
       <div className="flex justify-between items-center">
@@ -9,9 +83,13 @@ export default function Settings() {
           <h1 className="text-3xl font-bold text-dash-text">Settings</h1>
           <p className="text-dash-muted mt-1 font-medium">Configure office timings, shifts, and mobility rules.</p>
         </div>
-        <button className="bg-dash-blue text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-600 transition-all shadow-lg shadow-dash-blue/20 active:scale-95">
+        <button 
+          onClick={handleSave}
+          disabled={loading}
+          className="bg-dash-blue text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-600 transition-all shadow-lg shadow-dash-blue/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           <Save size={18} />
-          Save Changes
+          {loading ? "Saving..." : "Save Changes"}
         </button>
       </div>
 
@@ -49,36 +127,57 @@ export default function Settings() {
 
               <div className="space-y-8">
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-3">
+                     <div className="space-y-3">
                        <label className="text-xs font-bold text-dash-muted uppercase tracking-wider ml-1">Office Start Time</label>
                        <div className="relative">
                           <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-dash-muted" size={18} />
-                          <input type="time" defaultValue="09:00" className="w-full pl-12 pr-4 py-3.5 bg-dash-bg border-transparent rounded-2xl text-sm font-bold focus:ring-2 focus:ring-dash-blue/10 outline-none" />
+                          <input 
+                            type="time" 
+                            value={startTime}
+                            onChange={(e) => setStartTime(e.target.value)}
+                            className="w-full pl-12 pr-4 py-3.5 bg-dash-bg border-transparent rounded-2xl text-sm font-bold focus:ring-2 focus:ring-dash-blue/10 outline-none" 
+                          />
                        </div>
                     </div>
                     <div className="space-y-3">
                        <label className="text-xs font-bold text-dash-muted uppercase tracking-wider ml-1">Office End Time</label>
                        <div className="relative">
                           <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-dash-muted" size={18} />
-                          <input type="time" defaultValue="18:30" className="w-full pl-12 pr-4 py-3.5 bg-dash-bg border-transparent rounded-2xl text-sm font-bold focus:ring-2 focus:ring-dash-blue/10 outline-none" />
+                          <input 
+                            type="time" 
+                            value={endTime}
+                            onChange={(e) => setEndTime(e.target.value)}
+                            className="w-full pl-12 pr-4 py-3.5 bg-dash-bg border-transparent rounded-2xl text-sm font-bold focus:ring-2 focus:ring-dash-blue/10 outline-none" 
+                          />
                        </div>
                     </div>
                  </div>
 
                  <div className="space-y-4">
-                    <label className="text-xs font-bold text-dash-muted uppercase tracking-wider ml-1 block">Active Shift Slots</label>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                       {['General Shift', 'Morning Slot', 'Night Shift'].map((slot, i) => (
-                          <div key={i} className="flex items-center justify-between p-4 bg-dash-bg rounded-2xl border border-transparent hover:border-dash-border group cursor-pointer">
-                             <span className="text-sm font-bold text-dash-text">{slot}</span>
-                             <div className="w-10 h-6 bg-dash-blue rounded-full relative p-1 transition-all">
-                                <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm" />
-                             </div>
-                          </div>
-                       ))}
-                       <button className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-dash-border rounded-2xl text-sm font-bold text-dash-muted hover:border-dash-blue hover:text-dash-blue transition-all">
-                          + Add Slot
-                       </button>
+                    <label className="text-xs font-bold text-dash-muted uppercase tracking-wider ml-1 block">Working Days</label>
+                    <div className="flex flex-wrap gap-3">
+                       {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => {
+                          const isWorkingDay = workingDays.includes(day);
+                          return (
+                             <button 
+                                key={day} 
+                                onClick={() => {
+                                   if (isWorkingDay) {
+                                      setWorkingDays(workingDays.filter(d => d !== day));
+                                   } else {
+                                      setWorkingDays([...workingDays, day]);
+                                   }
+                                }}
+                                className={`flex-1 min-w-[3.5rem] h-14 rounded-2xl font-bold flex items-center justify-center transition-all ${
+                                   isWorkingDay 
+                                   ? 'bg-dash-blue text-white shadow-md shadow-dash-blue/20' 
+                                   : 'bg-dash-bg text-dash-muted border border-transparent hover:border-dash-border hover:bg-white'
+                                }`}
+                             >
+                                {day}
+                             </button>
+                          );
+                       })}
                     </div>
                  </div>
 

@@ -340,18 +340,49 @@ export const acceptBatch = async (req, res, next) => {
       },
       { new: true }
     )
-      .populate("ride_ids", "_id employee_id pickup_location drop_location")
+      .populate("ride_ids", "_id employee_id pickup_location drop_location status")
       .populate("driver_id", "_id name email contact vehicle")
-      .populate("office_id", "_id name");
+      .populate("office_id", "_id name office_location");
 
-    // NEW: Synchronize individual ride statuses within the batch
+    // NEW: Synchronize individual ride statuses within the batch and allocate fare
     if (updatedBatch && updatedBatch.ride_ids.length > 0) {
-      const rideIds = updatedBatch.ride_ids.map(r => r._id);
-      await RideRequest.updateMany(
-        { _id: { $in: rideIds } },
-        { $set: { status: "ACCEPTED" } }
-      );
-      console.log(`[Batch-Sync] Synchronized ${rideIds.length} rides to ACCEPTED for batch ${batch_id}`);
+      const calculateDistance = (lat1, lon1, lat2, lon2) => {
+        const R = 6371;
+        const dLat = ((lat2 - lat1) * Math.PI) / 180;
+        const dLon = ((lon2 - lon1) * Math.PI) / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+      };
+
+      let totalDistance = 0;
+      const rideDistanceMap = updatedBatch.ride_ids.map(r => {
+        const [pLng, pLat] = r.pickup_location.coordinates;
+        const [dLng, dLat] = r.drop_location.coordinates;
+        const distance = calculateDistance(pLat, pLng, dLat, dLng);
+        totalDistance += distance;
+        return { id: r._id, distance };
+      });
+
+      for (const rideMeta of rideDistanceMap) {
+        let allocatedFare = 0;
+        if (totalDistance > 0) {
+          const proportion = rideMeta.distance / totalDistance;
+          allocatedFare = Math.round(updatedBatch.estimated_fare * proportion);
+        } else {
+          // Fallback if coordinates were identical (0 distance)
+          allocatedFare = Math.round(updatedBatch.estimated_fare / updatedBatch.ride_ids.length);
+        }
+
+        await RideRequest.findByIdAndUpdate(rideMeta.id, {
+          $set: { 
+            status: "ACCEPTED",
+            allocated_fare: allocatedFare
+          }
+        });
+      }
+
+      console.log(`[Batch-Sync] Synchronized ${updatedBatch.ride_ids.length} rides to ACCEPTED and allocated fares for batch ${batch_id}`);
     }
 
     console.log(`[Batch Acceptance] Driver accepted batch ${batch_id}`);

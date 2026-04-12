@@ -7,8 +7,8 @@ export default function BookingTable({ data }) {
       <table className="w-full text-left border-separate border-spacing-y-4">
         <thead>
           <tr className="text-dash-muted text-xs uppercase font-bold tracking-wider">
-            <th className="px-6 py-2">Batch ID</th>
-            <th className="px-6 py-2">Employees</th>
+            <th className="px-6 py-2">ID</th>
+            <th className="px-6 py-2">Requester / Size</th>
             <th className="px-6 py-2">Destination</th>
             <th className="px-6 py-2">Fare</th>
             <th className="px-6 py-2 text-center">Status</th>
@@ -19,18 +19,27 @@ export default function BookingTable({ data }) {
           {data.map((item, index) => (
             <tr key={index} className="bg-white hover:bg-gray-50 transition-colors group">
               <td className="px-6 py-4 rounded-l-2xl text-sm font-bold text-dash-text border-y border-dash-border border-l first:border-l">
-                #{item.batch_id?.slice(-6).toUpperCase() || "N/A"}
+                #{item.batch_id?.slice(-6).toUpperCase() || item._id?.slice(-6).toUpperCase() || "N/A"}
               </td>
               <td className="px-6 py-4 text-sm font-bold text-dash-text border-y border-dash-border">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-dash-blue/10 flex items-center justify-center text-dash-blue font-bold text-xs">
-                    {item.size || 1}
+                {item.employee_id ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-dash-blue/10 flex items-center justify-center text-dash-blue font-bold text-xs uppercase">
+                      {item.employee_id.name?.first_name?.[0] || 'U'}
+                    </div>
+                    <span>{item.employee_id.name?.first_name} {item.employee_id.name?.last_name}</span>
                   </div>
-                  <span>{item.size || 1} Person(s)</span>
-                </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-dash-blue/10 flex items-center justify-center text-dash-blue font-bold text-xs">
+                      {item.size || 1}
+                    </div>
+                    <span>{item.size || 1} Person(s)</span>
+                  </div>
+                )}
               </td>
               <td className="px-6 py-4 text-sm text-dash-muted font-medium border-y border-dash-border">
-                Office HQ
+                {item.destination_type ? (item.destination_type === 'OFFICE' ? 'Office HQ' : 'Home') : 'Office HQ'}
               </td>
               <td className="px-6 py-4 text-sm font-bold text-dash-text border-y border-dash-border">
                 ₹{item.estimated_fare || item.earning || 0}

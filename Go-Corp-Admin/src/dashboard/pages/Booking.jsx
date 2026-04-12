@@ -1,26 +1,43 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Car, Search, Filter, History, MapPin } from 'lucide-react';
 import BookingTable from '../components/BookingTable';
+import * as adminAPI from '../../services/adminAPI';
+import * as authAPI from '../../services/authAPI';
 
 export default function Booking() {
-  const bookingData = [
-    { carNo: '6465', driver: 'Alex', location: 'Mumbai', earning: 250, status: 'Active', rating: 4.3 },
-    { carNo: '1065', driver: 'Raj', location: 'Delhi', earning: 20, status: 'Delayed', rating: 3.5 },
-    { carNo: '0015', driver: 'Riva', location: 'Mumbai', earning: 120, status: 'Delayed', rating: 3.1 },
-    { carNo: '3205', driver: 'Roan', location: 'Ahmedabad', earning: 510, status: 'Active', rating: 4.5 },
-  ];
+  const [bookingData, setBookingData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const initializeData = async () => {
+      try {
+        setLoading(true);
+        let oid = localStorage.getItem('officeId');
+        if (!oid || oid === '[object Object]') {
+          const profile = await authAPI.getUserProfile();
+          oid = typeof profile.office_id === 'object' ? profile.office_id._id : profile.office_id;
+          localStorage.setItem('officeId', oid);
+        }
+        
+        const rides = await adminAPI.getOfficeRidesHistory(oid);
+        setBookingData(rides || []);
+      } catch (error) {
+        console.error("Failed to load booking history:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    initializeData();
+  }, []);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-dash-text">Rides Booking</h1>
-          <p className="text-dash-muted mt-1 font-medium">Manage and monitor all active and scheduled bookings.</p>
+          <h1 className="text-3xl font-bold text-dash-text">Ride History</h1>
+          <p className="text-dash-muted mt-1 font-medium">View all previous ride histories.</p>
         </div>
-        <button className="bg-dash-blue text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-600 transition-all shadow-lg shadow-dash-blue/20">
-          <Car size={18} />
-          Manual Booking
-        </button>
       </div>
 
       <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-dash-border flex gap-4 items-center">
@@ -38,8 +55,14 @@ export default function Booking() {
       </div>
 
       <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-dash-border">
-         <h2 className="text-xl font-bold text-dash-text mb-6">Active Bookings</h2>
-         <BookingTable data={bookingData} />
+         <h2 className="text-xl font-bold text-dash-text mb-6">User Rides History</h2>
+         {loading ? (
+           <div className="flex justify-center items-center h-48 text-dash-muted font-bold animate-pulse">
+             Loading ride history...
+           </div>
+         ) : (
+           <BookingTable data={bookingData} />
+         )}
       </div>
     </div>
   );

@@ -882,3 +882,21 @@ export const getLatestRideForAdmin = async (req, res, next) => {
   }
 };
 
+export const getAllOfficeRides = async (req, res, next) => {
+  try {
+    const { office_id } = req.params;
+    
+    if (!office_id.match(/^[0-9a-fA-F]{24}$/)) {
+      throw new ApiError(400, "Invalid office ID format");
+    }
+
+    const rides = await RideRequest.find({ office_id })
+      .populate('employee_id', 'name email contact profile_image')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(new ApiResponse(200, "Rides history retrieved successfully", rides));
+  } catch (error) {
+    next(error || new ApiError(500, "Error retrieving rides history"));
+  }
+};
+

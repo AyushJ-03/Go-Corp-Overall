@@ -37,7 +37,6 @@ router.patch('/profile', authDriver, updateDriverProfile)
 
 router.get('/logout', authDriver, logoutDriver)
 
-router.patch('/update-location', authDriver, updateLocation)
 
 
 export default router

@@ -132,6 +132,11 @@ const rideRequestSchema = new mongoose.Schema(
       },
       coordinates: [[Number]],
     },
+
+    allocated_fare: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true

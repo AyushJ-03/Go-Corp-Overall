@@ -49,3 +49,28 @@ export const getOfficeById = async (req, res, next) => {
     next(new ApiError(500, error.message || "Internal server error"));
   }
 };
+
+export const updateOffice = async (req, res, next) => {
+  try {
+    const { office_id } = req.params;
+    const { shift_start, shift_end, working_days } = req.body;
+
+    if (!office_id || office_id.length !== 24) {
+       return next(new ApiError(400, "Invalid office ID format"));
+    }
+
+    const office = await Office.findByIdAndUpdate(
+      office_id,
+      { shift_start, shift_end, working_days },
+      { new: true, runValidators: true }
+    );
+
+    if (!office) {
+      return next(new ApiError(404, "Office not found"));
+    }
+
+    res.status(200).json(new ApiResponse(200, "Office updated successfully", office));
+  } catch (error) {
+    next(new ApiError(500, error.message || "Internal server error"));
+  }
+};

@@ -1,7 +1,7 @@
 import express from "express"
 const router = express.Router();
 import { authUser } from "../../middleware/auth.middleware.js";
-import { bookRide, getClusters, getPendingRides, getInvitedPeople, getRidesWithEmployeeInvite, getRideEmployeeGroup, cancelRide, getRideById, getPendingBatches, verifyOtp, getLatestRideForAdmin, getCurrentRide } from "./ride.controller.js";
+import { bookRide, getClusters, getPendingRides, getInvitedPeople, getRidesWithEmployeeInvite, getRideEmployeeGroup, cancelRide, getRideById, getPendingBatches, verifyOtp, getLatestRideForAdmin, getCurrentRide, getAllOfficeRides } from "./ride.controller.js";
 import { body, param, query } from "express-validator"
 
 router.get("/current-ride", authUser, getCurrentRide);
@@ -57,6 +57,10 @@ router.get("/pending-rides", getPendingRides);
 router.get("/:ride_id", [
   param('ride_id').matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid ride ID format')
 ], authUser, getRideById);
+
+router.get("/office/:office_id/history", [
+  param('office_id').matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid office ID format')
+], authUser, getAllOfficeRides);
 
 // Cancel a ride (employee can only cancel PENDING/IN_CLUSTERING)
 router.patch("/cancel/:ride_id", [

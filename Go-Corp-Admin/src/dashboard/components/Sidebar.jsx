@@ -15,8 +15,7 @@ import {
 export default function Sidebar() {
   const menuItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { name: 'Booking', icon: Car, path: '/dashboard/booking' },
-    { name: 'Schedule', icon: Calendar, path: '/dashboard/schedule' },
+    { name: 'Ride History', icon: Car, path: '/dashboard/booking' },
     { name: 'Finance', icon: Wallet, path: '/dashboard/finance' },
     { name: 'User Management', icon: Users, path: '/dashboard/employees' },
     { name: 'Reports', icon: BarChart3, path: '/dashboard/reports' },

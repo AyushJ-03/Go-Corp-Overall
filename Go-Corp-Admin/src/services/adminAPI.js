@@ -168,3 +168,40 @@ export const addEmployee = async (employeeData) => {
         throw error;
     }
 };
+
+/**
+ * Update office details including start/end time and working days
+ */
+export const updateOfficeSettings = async (officeId, data) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/office/${officeId}`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify(data),
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.message || "Failed to update office");
+        return json.data;
+    } catch (error) {
+        console.error("Error updating office:", error);
+        throw error;
+    }
+};
+
+/**
+ * Fetch all ride history for an office
+ */
+export const getOfficeRidesHistory = async (officeId) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/ride/office/${officeId}/history`, {
+            method: 'GET',
+            headers: getHeaders(),
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.message || "Failed to fetch ride history");
+        return json.data;
+    } catch (error) {
+        console.error("Error fetching ride history:", error);
+        throw error;
+    }
+};
