@@ -3,7 +3,7 @@ import { Clustering } from "./clustering.model.js";
 import { Batched } from "./batched.model.js";
 import { getDistance } from "../../utils/geo.js";
 import ApiError from "../../utils/ApiError.js";
-import { getEmployeesInRideGroup } from "../ride/ride.service.js";
+import { getEmployeesInRideGroup, getTotalPeopleInRides } from "../ride/ride.service.js";
 import * as turf from "@turf/turf";
 import { getRoute } from "../../utils/osrm.js";
 import mongoose from "mongoose";
@@ -274,11 +274,13 @@ const updateGroupRouteAndOrder = async (rideIds, groupDoc, type = 'cluster') => 
   const estimatedFare = calculateEstimatedFare(distanceInKm);
 
   const Model = type === 'cluster' ? Clustering : Batched;
+  const totalPeople = await getTotalPeopleInRides(rideIds);
+
   const updateData = {
     ride_ids: orderedRideIds,
     pickup_polyline: polylineObj,
-    current_size: allRides.length,
-    batch_size: allRides.length,
+    current_size: totalPeople,
+    batch_size: totalPeople,
     estimated_distance: distanceInKm,
     estimated_fare: estimatedFare
   };
@@ -719,11 +721,13 @@ export const moveToBatched = async (cluster, forceBatched = false, reason = null
     const distanceInKm = calculatePolylineDistance(cluster.pickup_polyline);
     const estimatedFare = calculateEstimatedFare(distanceInKm);
 
+    const totalPeople = await getTotalPeopleInRides(uniqueRideIds);
+
     const batched = await Batched.create({
       office_id: cluster.office_id,
       scheduled_at: cluster.scheduled_at,
       ride_ids: uniqueRideIds,
-      batch_size: uniqueRideIds.length,
+      batch_size: totalPeople,
       pickup_polyline: cluster.pickup_polyline,
       pickup_centroid: cluster.pickup_centroid,
       drop_location: cluster.drop_location,

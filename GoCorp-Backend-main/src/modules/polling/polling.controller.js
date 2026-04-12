@@ -344,6 +344,16 @@ export const acceptBatch = async (req, res, next) => {
       .populate("driver_id", "_id name email contact vehicle")
       .populate("office_id", "_id name");
 
+    // NEW: Synchronize individual ride statuses within the batch
+    if (updatedBatch && updatedBatch.ride_ids.length > 0) {
+      const rideIds = updatedBatch.ride_ids.map(r => r._id);
+      await RideRequest.updateMany(
+        { _id: { $in: rideIds } },
+        { $set: { status: "ACCEPTED" } }
+      );
+      console.log(`[Batch-Sync] Synchronized ${rideIds.length} rides to ACCEPTED for batch ${batch_id}`);
+    }
+
     console.log(`[Batch Acceptance] Driver accepted batch ${batch_id}`);
 
     res.status(200).json(
