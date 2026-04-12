@@ -161,7 +161,11 @@ export default function Overview() {
         },
       ]);
 
-      setBookingData(recentRides);
+      const filteredRides = recentRides.filter(ride => {
+        const status = (ride.status || '').toUpperCase();
+        return status === 'CREATED' || status === 'DRIVER_ACCEPTED';
+      });
+      setBookingData(filteredRides);
     } catch (error) {
       console.error("Dashboard load failed:", error);
     } finally {

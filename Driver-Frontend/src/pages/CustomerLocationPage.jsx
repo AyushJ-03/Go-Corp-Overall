@@ -50,26 +50,44 @@ const createStopIcon = (index, isActive) => {
 }
 
 // Map content component to handle fitBounds
-const MapContent = ({ driverPos, customerPos, batchData, routePath, currentRideIndex }) => {
+const MapContent = ({ driverPos, customerPos, batchData, routePath, driverRoutePath, currentRideIndex }) => {
   const map = useMap()
 
   useEffect(() => {
-    if (routePath && routePath.length > 0) {
-      const bounds = L.latLngBounds(routePath)
-      if (driverPos) bounds.extend(driverPos)
-      map.fitBounds(bounds, { padding: [50, 50] })
-    } else if (customerPos) {
-      map.setView(customerPos, 15)
+    // Build a combined bounds from all available paths + driver position
+    const allPoints = [
+      ...(routePath?.length ? routePath : []),
+      ...(driverRoutePath?.length ? driverRoutePath : []),
+    ]
+    if (driverPos) allPoints.push(driverPos)
+    if (customerPos) allPoints.push(customerPos)
+
+    if (allPoints.length > 0) {
+      const bounds = L.latLngBounds(allPoints)
+      map.fitBounds(bounds, { padding: [60, 60] })
     }
-  }, [routePath, driverPos, customerPos, map])
+  }, [routePath, driverRoutePath, driverPos, customerPos, map])
 
   return (
     <>
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-      
-      {/* Route Path */}
+
+      {/* Full batch route — orange solid line (Stop1 → Stop2 → … → Office) */}
       {routePath && routePath.length > 0 && (
-        <Polyline pathOptions={{ color: '#f29400', weight: 5, opacity: 0.8 }} positions={routePath} />
+        <Polyline pathOptions={{ color: '#f29400', weight: 5, opacity: 0.75 }} positions={routePath} />
+      )}
+
+      {/* Driver → first customer — blue dashed line (Stop 1 only) */}
+      {driverRoutePath && driverRoutePath.length > 0 && (
+        <Polyline
+          pathOptions={{
+            color: '#3b82f6',
+            weight: 5,
+            opacity: 0.9,
+            dashArray: '10, 8',
+          }}
+          positions={driverRoutePath}
+        />
       )}
 
       {/* Driver Marker */}
@@ -82,12 +100,21 @@ const MapContent = ({ driverPos, customerPos, batchData, routePath, currentRideI
       {/* Stop Markers */}
       {batchData ? (
         batchData.rides.map((ride, idx) => (
-          <Marker 
+          <Marker
             key={`ride-${idx}`}
             position={[ride.pickupLocation.coordinates[1], ride.pickupLocation.coordinates[0]]}
             icon={createStopIcon(ride.pickupOrder || idx + 1, ride.rideId === batchData.rides[currentRideIndex]?.rideId)}
           >
-            <Popup>{ride.employeeName}</Popup>
+            <Popup>
+              <div style={{ minWidth: '130px', padding: '4px 2px' }}>
+                <p style={{ fontWeight: 800, fontSize: '13px', color: '#1f2937', marginBottom: '2px' }}>
+                  {resolveRideName(ride)}
+                </p>
+                <p style={{ fontSize: '11px', color: '#f29400', fontWeight: 700 }}>
+                  Stop {ride.pickupOrder || idx + 1}
+                </p>
+              </div>
+            </Popup>
           </Marker>
         ))
       ) : (
@@ -104,24 +131,54 @@ const MapContent = ({ driverPos, customerPos, batchData, routePath, currentRideI
   )
 }
 
-// Helper function to extract employee name - ALWAYS returns a string
+// Helper function to extract employee name from any shape the backend may send
 const getEmployeeName = (employee) => {
   try {
-    if (!employee) return 'Employee'
-    if (typeof employee === 'string') return 'Employee'
+    if (!employee) return null
+    if (typeof employee === 'string') return null // bare ID string — no name
     if (typeof employee === 'object') {
-      if (employee.name && typeof employee.name === 'string') {
-        return employee.name.trim() || 'Employee'
+      // The User schema stores name as a nested object: { first_name, last_name }
+      // Try that first, then fall back to other common shapes
+      const nestedName = employee.name && typeof employee.name === 'object'
+        ? `${employee.name.first_name || ''} ${employee.name.last_name || ''}`.trim()
+        : (typeof employee.name === 'string' ? employee.name.trim() : null)
+
+      const candidates = [
+        nestedName,                                       // { name: { first_name, last_name } }
+        employee.fullName,                                // fullName
+        employee.full_name,                               // full_name
+        employee.displayName,                             // displayName
+        employee.display_name,                            // display_name
+        employee.first_name && employee.last_name         // top-level first+last
+          ? `${employee.first_name} ${employee.last_name}`.trim()
+          : null,
+        employee.first_name,
+        employee.last_name,
+        // email intentionally excluded — not a display name
+      ]
+      for (const c of candidates) {
+        if (c && typeof c === 'string' && c.trim()) return c.trim()
       }
-      const firstName = employee.first_name ? String(employee.first_name).trim() : ''
-      const lastName = employee.last_name ? String(employee.last_name).trim() : ''
-      const fullName = `${firstName} ${lastName}`.trim()
-      if (fullName) return fullName
     }
   } catch (err) {
     console.error('Error in getEmployeeName:', err, employee)
   }
-  return 'Employee'
+  return null
+}
+
+// Smart resolver: uses every available field, only falls back to 'Passenger' as last resort.
+// Crucially bypasses the stored 'Employee' placeholder string.
+const resolveRideName = (ride) => {
+  if (!ride) return 'Passenger'
+  // 1. Use stored employeeName only if it's a real name (not the generic placeholder)
+  if (ride.employeeName && ride.employeeName !== 'Employee' && ride.employeeName !== 'Passenger') {
+    return ride.employeeName
+  }
+  // 2. Try to extract from the stored employee_id object (populated by backend)
+  const fromObj = getEmployeeName(ride.employee_id)
+  if (fromObj) return fromObj
+  // 3. Final fallback
+  return 'Passenger'
 }
 
 // Calculate distance between two coordinates using Haversine formula (in km)
@@ -152,7 +209,8 @@ const CustomerLocationPage = () => {
   const [rideData, setRideData] = useState(null)
   const [batchData, setBatchData] = useState(null)
   const [currentRideIndex, setCurrentRideIndex] = useState(0)
-  const [routePath, setRoutePath] = useState(null)
+  const [routePath, setRoutePath] = useState(null)         // orange: full batch route
+  const [driverRoutePath, setDriverRoutePath] = useState(null) // blue dashed: driver → stop 1
   const [loadingRoute, setLoadingRoute] = useState(false)
   const [estimatedTime, setEstimatedTime] = useState(null)
 
@@ -183,15 +241,105 @@ const CustomerLocationPage = () => {
     ? [currentRide.pickupLocation.coordinates[1], currentRide.pickupLocation.coordinates[0]]
     : [28.6350, 77.3700]
 
-  // Display route logic
+  // Reset both routes whenever the current stop changes
   useEffect(() => {
-    // If we have a Batch with a predefined route, use it
+    setRoutePath(null);
+    setDriverRoutePath(null);
+    setEstimatedTime(null);
+  }, [currentRideIndex, currentRide?.rideId]);
+
+  useEffect(() => {
+    if (!currentRide?.pickupLocation) return;
+
+    const driverCoords = storedLocation ? JSON.parse(storedLocation) : null;
+
+    // ─── STOP 1: fetch driver→customer (blue) AND full batch route (orange) ─
+    if (currentRideIndex === 0 && batchData) {
+      if (!driverCoords) return;
+
+      const dLat = driverCoords.latitude;
+      const dLng = driverCoords.longitude;
+      const cLat = currentRide.pickupLocation.coordinates[1];
+      const cLng = currentRide.pickupLocation.coordinates[0];
+
+      // ── 1a. Full batch route (orange): Stop1 → Stop2 → … → Office ──────────
+      const buildFullBatchRoute = async () => {
+        // Use backend polyline if available
+        if (batchData?.routePolyline?.coordinates || batchData?.pickupPolyline?.coordinates) {
+          const poly = batchData.routePolyline || batchData.pickupPolyline;
+          const coords = poly.coordinates.map(c => [c[1], c[0]]);
+          setRoutePath(coords);
+          return;
+        }
+        // Otherwise fetch from OSRM: all pickups in order + office
+        const batchPoints = [...batchData.rides]
+          .sort((a, b) => (a.pickupOrder || 0) - (b.pickupOrder || 0))
+          .map(r => [r.pickupLocation.coordinates[1], r.pickupLocation.coordinates[0]]);
+        if (batchData.officeLocation) batchPoints.push(batchData.officeLocation);
+        if (batchPoints.length < 2) return;
+
+        const wpFull = batchPoints.map(p => `${p[1]},${p[0]}`).join(';');
+        try {
+          const res = await fetch(
+            `https://routing.openstreetmap.de/routed-car/route/v1/driving/${wpFull}?overview=full&geometries=geojson`
+          );
+          const data = await res.json();
+          if (data.routes?.length > 0) {
+            setRoutePath(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
+          } else {
+            setRoutePath(batchPoints);
+          }
+        } catch {
+          setRoutePath(batchPoints);
+        }
+      };
+
+      // ── 1b. Driver → Stop 1 (blue dashed) ──────────────────────────────────
+      const fetchDriverToStop1 = async () => {
+        setLoadingRoute(true);
+        const waypoints    = `${dLng},${dLat};${cLng},${cLat}`;
+        const primaryUrl   = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
+        const secondaryUrl = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
+        const controller   = new AbortController();
+        const timeoutId    = setTimeout(() => controller.abort(), 7000);
+
+        try {
+          console.log('🔵 [Stop 1] Fetching driver → customer route...');
+          let response;
+          try {
+            response = await fetch(primaryUrl, { signal: controller.signal });
+          } catch {
+            response = await fetch(secondaryUrl, { signal: controller.signal });
+          }
+          clearTimeout(timeoutId);
+          const data = await response.json();
+          if (data.routes?.length > 0) {
+            setDriverRoutePath(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
+            setEstimatedTime(Math.round(data.routes[0].duration / 60));
+          } else {
+            throw new Error('No route returned');
+          }
+        } catch (err) {
+          clearTimeout(timeoutId);
+          if (err.name !== 'AbortError') console.error('❌ Stop-1 driver route failed:', err);
+          setDriverRoutePath([[dLat, dLng], [cLat, cLng]]);
+          setEstimatedTime(calculateTimeInMinutes(calculateDistance(dLat, dLng, cLat, cLng)));
+        } finally {
+          setLoadingRoute(false);
+        }
+      };
+
+      buildFullBatchRoute();
+      fetchDriverToStop1();
+      return;
+    }
+
+    // ─── SUBSEQUENT STOPS or SINGLE RIDE: existing multi-point logic ───────
     if (batchData?.routePolyline?.coordinates || batchData?.pickupPolyline?.coordinates) {
       const poly = batchData.routePolyline || batchData.pickupPolyline;
       console.log('🗺️ Using full batch route from backend polyline');
       const coordinates = poly.coordinates.map(coord => [coord[1], coord[0]]);
       setRoutePath(coordinates);
-      
       if (driverPos && customerPos) {
         const dist = calculateDistance(driverPos[0], driverPos[1], customerPos[0], customerPos[1]);
         setEstimatedTime(calculateTimeInMinutes(dist));
@@ -199,85 +347,54 @@ const CustomerLocationPage = () => {
       return;
     }
 
-    // Fallback or Single Ride: Fetch route from driver to customer
-    if (!currentRide?.pickupLocation) return;
-    const driverCoords = storedLocation ? JSON.parse(storedLocation) : null;
     if (!driverCoords) return;
 
-    const dLat = driverCoords.latitude;
-    const dLng = driverCoords.longitude;
-    const cLng = currentRide.pickupLocation.coordinates[0];
-    const cLat = currentRide.pickupLocation.coordinates[1];
-
     const fetchRoute = async () => {
-      // Prevent redundant fetches if we already have a route
-      if (routePath && routePath.length > 0) return;
-      
       setLoadingRoute(true);
-      
-      // Determine all points for the route
+
       let points = [];
-      const dCoords = driverPos || (storedLocation ? [storedLocation.latitude, storedLocation.longitude] : null);
-      if (dCoords) points.push(dCoords);
-      
+      if (driverPos) points.push(driverPos);
+
       if (batchData) {
-        // Add all pickups in order
         const batchPoints = [...batchData.rides]
           .sort((a, b) => (a.pickupOrder || 0) - (b.pickupOrder || 0))
           .map(r => [r.pickupLocation.coordinates[1], r.pickupLocation.coordinates[0]]);
         points.push(...batchPoints);
-        
-        // Add office destination
-        if (batchData.officeLocation) {
-          points.push(batchData.officeLocation);
-        }
+        if (batchData.officeLocation) points.push(batchData.officeLocation);
       } else if (customerPos) {
         points.push(customerPos);
       }
 
-      if (points.length < 2) {
-        setLoadingRoute(false);
-        return;
-      }
+      if (points.length < 2) { setLoadingRoute(false); return; }
 
       try {
         console.log('📍 Fetching multi-point route...');
         const waypoints = points.map(p => `${p[1]},${p[0]}`).join(';');
-        
-        const primaryUrl = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
+        const primaryUrl   = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
         const secondaryUrl = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
-        
+
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const timeoutId  = setTimeout(() => controller.abort(), 6000);
 
         let response;
         try {
-          console.log('📡 Trying primary mirror (OSM Germany)...');
           response = await fetch(primaryUrl, { signal: controller.signal });
-        } catch (e) {
-          console.warn('⚠️ Primary mirror failed, trying secondary (Project OSRM)...');
+        } catch {
           response = await fetch(secondaryUrl, { signal: controller.signal });
         }
-        
         clearTimeout(timeoutId);
-        const data = await response.json();
 
-        if (data.routes && data.routes.length > 0) {
-          const coordinates = data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
-          setRoutePath(coordinates);
+        const data = await response.json();
+        if (data.routes?.length > 0) {
+          const coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+          setRoutePath(coords);
           setEstimatedTime(Math.round(data.routes[0].duration / 60));
         } else {
-          throw new Error('No route found in response');
+          throw new Error('No route found');
         }
       } catch (error) {
-        if (error.name === 'AbortError') {
-          console.warn('⏱️ Route fetch timed out');
-        } else {
-          console.error('❌ Multi-point route fetch failed:', error);
-        }
-        // Fallback: Connect all points with straight lines
+        if (error.name !== 'AbortError') console.error('❌ Multi-point route fetch failed:', error);
         setRoutePath(points);
-        
         let totalDist = 0;
         for (let i = 0; i < points.length - 1; i++) {
           totalDist += calculateDistance(points[i][0], points[i][1], points[i+1][0], points[i+1][1]);
@@ -288,10 +405,8 @@ const CustomerLocationPage = () => {
       }
     };
 
-    if (driverPos || storedLocation) {
-      fetchRoute();
-    }
-  }, [currentRide?.rideId, batchData?.batchId, !!driverPos, !!storedLocation])
+    fetchRoute();
+  }, [currentRideIndex, currentRide?.rideId, batchData?.batchId, !!driverPos, !!storedLocation])
 
   const handleNext = () => {
     navigate('/arrived')
@@ -309,11 +424,12 @@ const CustomerLocationPage = () => {
     <div className="relative h-screen flex flex-col bg-[#f0f0f5] animate-fade-in overflow-hidden">
       <div className="absolute inset-0 z-[1] w-full h-full">
         <MapContainer className="w-full h-full" center={customerPos} zoom={15} scrollWheelZoom={true} zoomControl={false}>
-          <MapContent 
+          <MapContent
             driverPos={driverPos}
             customerPos={customerPos}
             batchData={batchData}
             routePath={routePath}
+            driverRoutePath={driverRoutePath}
             currentRideIndex={currentRideIndex}
           />
         </MapContainer>
@@ -341,12 +457,12 @@ const CustomerLocationPage = () => {
             <div className="w-16 h-16 rounded-full bg-gray-200 overflow-hidden ring-4 ring-orange-50">
               {/* Placeholder avatar */}
               <div className="w-full h-full bg-gradient-to-br from-primary to-orange-600 flex items-center justify-center text-white font-bold text-2xl">
-                {String(currentRide?.employeeName || getEmployeeName(currentRide?.employee_id))?.[0] || 'U'}
+                {resolveRideName(currentRide)[0].toUpperCase()}
               </div>
             </div>
             <div>
               <h3 className="text-lg font-extrabold text-gray-800 flex items-center">
-                {String(currentRide?.employeeName || getEmployeeName(currentRide?.employee_id))}
+                {resolveRideName(currentRide)}
                 {batchData && (
                   <span className="ml-2 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">
                     Stop {currentRideIndex + 1}

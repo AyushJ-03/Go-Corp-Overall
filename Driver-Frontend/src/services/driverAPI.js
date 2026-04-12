@@ -66,6 +66,18 @@ export const getDriverProfile = async () => {
   }
 }
 
+export const updateDriverProfile = async (profileData) => {
+  try {
+    const response = await driverAPI.patch('/profile', profileData)
+    const updatedDriver = response.data.data.driver
+    // Update localStorage so changes persist across pages
+    localStorage.setItem('driver', JSON.stringify(updatedDriver))
+    return updatedDriver
+  } catch (error) {
+    throw error.response?.data || error.message
+  }
+}
+
 export const logoutDriver = async () => {
   try {
     await driverAPI.get('/logout')

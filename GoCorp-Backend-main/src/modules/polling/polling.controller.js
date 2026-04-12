@@ -143,9 +143,13 @@ export const getClustersByOfficeAndTime = async (req, res, next) => {
 
     const { office_id, scheduled_at } = req.query;
 
+    const dateObj = new Date(scheduled_at);
+    const dayStart = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
     const clusters = await Clustering.find({
       office_id: office_id,
-      scheduled_at: new Date(scheduled_at),
+      scheduled_at: { $gte: dayStart, $lt: dayEnd },
     })
       .populate("ride_ids", "_id employee_id pickup_location drop_location")
       .sort({ createdAt: -1 });
@@ -186,9 +190,13 @@ export const getBatchesByOfficeAndTime = async (req, res, next) => {
 
     const { office_id, scheduled_at, status } = req.query;
 
+    const dateObj = new Date(scheduled_at);
+    const dayStart = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
     let query = {
       office_id: office_id,
-      scheduled_at: new Date(scheduled_at),
+      scheduled_at: { $gte: dayStart, $lt: dayEnd },
     };
 
     if (status) {

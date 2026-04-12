@@ -291,8 +291,8 @@ const BatchRequestPage = () => {
 
   return (
     <div className="relative h-screen flex flex-col bg-[#f0f0f5] animate-fade-in overflow-hidden">
-      <div className="absolute inset-0 z-[1] w-full h-full grayscale-[0.8] contrast-[0.9] brightness-[1.1]">
-        <MapContainer className="w-full h-full" center={position} zoom={15} scrollWheelZoom={true} zoomControl={false}>
+      <div className="absolute inset-0 z-[1] w-full h-full">
+        <MapContainer className="w-full h-full" center={position} zoom={15} scrollWheelZoom={true} zoomControl={true} dragging={true}>
           <TileLayer
             attribution='&copy; OpenStreetMap contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -305,12 +305,12 @@ const BatchRequestPage = () => {
         </MapContainer>
       </div>
 
-      <div className="relative z-[10] flex flex-col h-full bg-black/5">
-        <div className="flex justify-center mt-32 gap-6 items-center">
+      <div className="relative z-[10] flex flex-col h-full bg-black/5 pointer-events-none">
+        <div className="flex justify-center mt-32 gap-6 items-center pointer-events-auto">
           <CircularTimer initialTime={20} onComplete={handleTimerComplete} />
         </div>
 
-        <div className="mt-auto bg-white rounded-t-[40px] p-8 pb-10 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-[20] max-h-[60vh] overflow-y-auto">
+        <div className="mt-auto bg-white rounded-t-[40px] p-8 pb-10 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-[20] max-h-[60vh] overflow-y-auto pointer-events-auto">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-extrabold text-gray-800">
               Batch Request

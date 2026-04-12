@@ -5,7 +5,6 @@ import {
   Plus, 
   ArrowUpRight, 
   ArrowDownLeft,
-  Download,
   Filter,
   ChevronRight
 } from 'lucide-react';
@@ -107,51 +106,6 @@ export default function Finance() {
       color: 'green' 
     },
   ];
-
-  // Calculate monthly totals
-  const currentMonth = new Date().getMonth();
-  const currentYear = new Date().getFullYear();
-  
-  const monthlyTotals = {
-    received: transactions
-      .filter(t => {
-        const d = new Date(t.createdAt);
-        return t.type === 'CREDIT' && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-      })
-      .reduce((sum, t) => sum + (t.amount || 0), 0),
-    paid: transactions
-      .filter(t => {
-        const d = new Date(t.createdAt);
-        return t.type === 'DEBIT' && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-      })
-      .reduce((sum, t) => sum + Math.abs(t.amount || 0), 0),
-  };
-
-  const handleExportCSV = () => {
-    if (transactions.length === 0) return;
-    
-    const headers = ['Date', 'Description', 'Type', 'Amount', 'Status'];
-    const csvContent = [
-      headers.join(','),
-      ...transactions.map(t => [
-        new Date(t.createdAt).toLocaleDateString(),
-        `"${t.description || ''}"`,
-        t.type,
-        t.amount,
-        t.status || 'SUCCESS'
-      ].join(','))
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `transactions_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   const handleAddFund = async (e) => {
     e.preventDefault();
@@ -318,45 +272,6 @@ export default function Finance() {
           </form>
         </div>
       )}
-
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-[2.5rem] p-6 border border-green-200 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-green-200 rounded-xl">
-              <ArrowDownLeft size={24} className="text-green-600" />
-            </div>
-            <span className="text-xs font-bold text-green-600 bg-white px-3 py-1 rounded-lg">This Month</span>
-          </div>
-          <p className="text-dash-muted text-sm font-bold">Total Received</p>
-          <p className="text-2xl font-bold text-green-600 mt-2">₹{monthlyTotals.received.toLocaleString()}</p>
-        </div>
-
-        <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-[2.5rem] p-6 border border-red-200 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-red-200 rounded-xl">
-              <ArrowUpRight size={24} className="text-red-600" />
-            </div>
-            <span className="text-xs font-bold text-red-600 bg-white px-3 py-1 rounded-lg">This Month</span>
-          </div>
-          <p className="text-dash-muted text-sm font-bold">Total Paid Out</p>
-          <p className="text-2xl font-bold text-red-600 mt-2">₹{monthlyTotals.paid.toLocaleString()}</p>
-        </div>
-
-        <div 
-          onClick={handleExportCSV}
-          className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-[2.5rem] p-6 border border-blue-200 shadow-sm cursor-pointer hover:shadow-md transition-all active:scale-[0.98]"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-blue-200 rounded-xl">
-              <Download size={24} className="text-dash-blue" />
-            </div>
-            <span className="text-xs font-bold text-dash-blue bg-white px-3 py-1 rounded-lg">Download</span>
-          </div>
-          <p className="text-dash-muted text-sm font-bold">Export Statement</p>
-          <p className="text-lg font-bold text-dash-text mt-2">Export CSV</p>
-        </div>
-      </div>
 
       {/* Recent Transactions */}
       <div className="space-y-4">

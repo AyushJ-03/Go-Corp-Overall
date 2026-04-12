@@ -85,19 +85,62 @@ export const getDriverProfile = async (req, res, next) => {
 
 export const logoutDriver = async (req, res, next) => {
   try {
-      const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
-  
-      if (!token) {
-        throw new ApiError(400, "No token provided");
-      }
-  
-      await BlacklistToken.create({ token });
-  
-      res.clearCookie('token');
-  
-      res.status(200).json(new ApiResponse(200, "Logout successful"));
-  
-    } catch (error) {
-      next(error || new ApiError(500, "Driver logout error"));
+    const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+      throw new ApiError(400, "No token provided");
     }
+
+    await BlacklistToken.create({ token });
+
+    res.clearCookie('token');
+
+    res.status(200).json(new ApiResponse(200, "Logout successful"));
+
+  } catch (error) {
+    next(error || new ApiError(500, "Driver logout error"));
+  }
+};
+
+export const updateDriverProfile = async (req, res, next) => {
+  try {
+    const { name, email, contact, profile_pic } = req.body;
+    const driver = await Driver.findById(req.driver._id);
+
+    if (!driver) {
+      throw new ApiError(404, "Driver not found");
+    }
+
+    if (name) {
+      if (typeof name === 'string') {
+        const parts = name.trim().split(/\s+/);
+        driver.name.first_name = parts[0];
+        driver.name.last_name = parts.slice(1).join(' ') || '';
+      } else if (typeof name === 'object') {
+        if (name.first_name) driver.name.first_name = name.first_name;
+        if (name.last_name !== undefined) driver.name.last_name = name.last_name;
+      }
+    }
+
+    if (email) {
+      const existingDriver = await Driver.findOne({ email, _id: { $ne: driver._id } });
+      if (existingDriver) {
+        throw new ApiError(400, "Email already in use");
+      }
+      driver.email = email;
+    }
+
+    if (contact) {
+      driver.contact = contact;
+    }
+
+    if (profile_pic !== undefined) {
+      driver.profile_pic = profile_pic;
+    }
+
+    await driver.save({ validateModifiedOnly: true });
+    res.status(200).json(new ApiResponse(200, "Profile updated successfully", { driver }));
+  } catch (error) {
+    next(error || new ApiError(500, "Profile update error"));
+  }
 };

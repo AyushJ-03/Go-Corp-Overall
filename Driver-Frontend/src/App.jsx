@@ -15,6 +15,7 @@ import OTPVerificationPage from './pages/OTPVerificationPage'
 import DestinationPage from './pages/DestinationPage'
 import CompleteRidePage from './pages/CompleteRidePage'
 import PaymentSuccessPage from './pages/PaymentSuccessPage'
+import ProfilePage from './pages/ProfilePage'
 
 function App() {
   return (
@@ -35,6 +36,7 @@ function App() {
             <Route path="/destination" element={<DestinationPage />} />
             <Route path="/complete-ride" element={<CompleteRidePage />} />
             <Route path="/payment-success" element={<PaymentSuccessPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
           </Routes>
         </div>
       </RideProvider>

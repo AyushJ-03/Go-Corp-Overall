@@ -262,3 +262,16 @@ export const removeSavedLocation = async (req, res, next) => {
     next(error || new ApiError(500, "Error removing saved location"));
   }
 };
+
+export const getOfficeEmployees = async (req, res, next) => {
+  try {
+    const users = await User.find({
+      office_id: req.user.office_id,
+      role: 'EMPLOYEE'
+    }).select('name email contact role createdAt');
+    
+    res.status(200).json(new ApiResponse(200, "Office employees retrieved", users));
+  } catch (error) {
+    next(error || new ApiError(500, "Error fetching office employees"));
+  }
+};

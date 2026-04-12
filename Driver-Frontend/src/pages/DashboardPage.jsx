@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { User, Calendar, DollarSign, Navigation, LogOut } from 'lucide-react'
+import { User, Calendar, DollarSign, Navigation } from 'lucide-react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -183,17 +183,7 @@ const DashboardPage = () => {
     }
   }, [showProfileMenu])
 
-  const handleLogout = async () => {
-    try {
-      await logoutDriver()
-      navigate('/signin')
-    } catch (error) {
-      console.error('Logout failed:', error)
-      localStorage.removeItem('driverToken')
-      localStorage.removeItem('driver')
-      navigate('/signin')
-    }
-  }
+
 
   // Start polling when driver goes online
   useEffect(() => {
@@ -296,23 +286,11 @@ const DashboardPage = () => {
       <div className="relative z-[10] flex justify-between items-center pt-10 container">
         <div className="user-profile relative" ref={profileMenuRef}>
           <div 
-            className="w-11 h-11 bg-white rounded-xl flex justify-center items-center shadow-[0_4px_10px_rgba(0,0,0,0.1)] cursor-pointer hover:shadow-[0_6px_15px_rgba(0,0,0,0.15)] transition-all"
-            onClick={() => setShowProfileMenu(!showProfileMenu)}
+            className="w-11 h-11 bg-white rounded-xl flex justify-center items-center shadow-[0_4px_10px_rgba(0,0,0,0.1)] cursor-pointer hover:shadow-[0_6px_15px_rgba(0,0,0,0.15)] transition-all active:scale-95"
+            onClick={() => navigate('/profile')}
           >
             <User size={24} />
           </div>
-
-          {showProfileMenu && (
-            <div className="absolute top-14 left-0 bg-white rounded-lg shadow-[0_4px_20px_rgba(0,0,0,0.15)] py-2 min-w-[150px] z-[20]">
-              <button
-                onClick={handleLogout}
-                className="w-full px-4 py-2 flex items-center gap-2 text-red-600 hover:bg-red-50 transition-all text-sm font-medium"
-              >
-                <LogOut size={16} />
-                Logout
-              </button>
-            </div>
-          )}
         </div>
 
         <div 
@@ -386,6 +364,8 @@ const DashboardPage = () => {
           </div>
         </div>
       )}
+
+
     </div>
   )
 }

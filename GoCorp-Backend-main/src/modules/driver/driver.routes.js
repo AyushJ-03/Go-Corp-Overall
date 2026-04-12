@@ -1,5 +1,5 @@
 import express from "express";
-import { createDriver, loginDriver, getDriverProfile, logoutDriver } from "./driver.controller.js";
+import { createDriver, loginDriver, getDriverProfile, logoutDriver, updateDriverProfile } from "./driver.controller.js";
 import { body } from "express-validator";
 import { authDriver } from "../../middleware/auth.middleware.js";
 
@@ -32,6 +32,8 @@ router.post('/login',[
 ], loginDriver)
 
 router.get('/profile', authDriver, getDriverProfile)
+
+router.patch('/profile', authDriver, updateDriverProfile)
 
 router.get('/logout', authDriver, logoutDriver)
 

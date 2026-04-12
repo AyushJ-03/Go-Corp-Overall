@@ -78,6 +78,11 @@ const driverSchema = new mongoose.Schema({
       enum: ["Point"],
     },
     coordinates: [Number]
+  },
+
+  profile_pic: {
+    type: String,
+    default: null
   }
 
 });

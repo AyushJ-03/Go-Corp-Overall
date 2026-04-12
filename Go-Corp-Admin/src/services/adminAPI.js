@@ -131,3 +131,40 @@ export const getOfficeDetails = async (officeId) => {
         throw error;
     }
 };
+
+/**
+ * Fetch all employees for the given office ID
+ */
+export const getOfficeEmployees = async () => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/user/office-employees`, {
+            method: 'GET',
+            headers: getHeaders(),
+        });
+        if (!response.ok) throw new Error("Failed to fetch office employees");
+        const json = await response.json();
+        return json.data;
+    } catch (error) {
+        console.error("Error fetching office employees:", error);
+        throw error;
+    }
+};
+
+/**
+ * Add a new employee
+ */
+export const addEmployee = async (employeeData) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/user/add-user`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(employeeData),
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.message || "Failed to add employee");
+        return json.data;
+    } catch (error) {
+        console.error("Error adding employee:", error);
+        throw error;
+    }
+};
