@@ -164,7 +164,12 @@ export const MapLayer = ({
 
                 {/* Multi-Participant Markers */}
                 {participants.length > 0 ? (
-                    participants.map((p, idx) => {
+                    // Group people by Ride ID so we show one marker per booking
+                    Object.values(participants.reduce((acc, p) => {
+                        if (!acc[p.ride_id]) acc[p.ride_id] = { ...p, others: [] };
+                        else acc[p.ride_id].others.push(p);
+                        return acc;
+                    }, {})).map((p, idx) => {
                         // Direction Logic: 
                         // To Office -> Show Pickups
                         // From Office -> Show Drops
@@ -178,34 +183,43 @@ export const MapLayer = ({
 
                         const leafletPos = [finalCoords[1], finalCoords[0]];
                         const isCurrentUser = p.ride_id?.toString() === currentRideId?.toString();
-                        const label = idx + 1;
+                        // Use booking_index from backend if available, otherwise fallback to map index
+                        const label = (p.booking_index ?? idx) + 1;
+                        const allPeople = [p, ...p.others];
 
                         return (
                             <Marker 
-                                key={p.ride_id || idx}
+                                key={p.ride_id}
                                 position={leafletPos} 
                                 icon={showSequence ? getStopMarkerIcon(label, isCurrentUser, !isToOffice) : getSimpleDotIcon(isCurrentUser)} 
                             >
                                 {showSequence && (
                                     <Popup closeButton={false} className="custom-ride-popup">
-                                        <div className="flex items-center gap-3 py-1 pr-2 min-w-[120px]">
-                                            <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center font-black text-xs text-slate-500 overflow-hidden shrink-0 border border-slate-200">
-                                                {p.profile_image ? (
-                                                    <img src={p.profile_image} alt="Profile" className="w-full h-full object-cover" />
-                                                ) : (
-                                                    <span>{p.name?.first_name?.[0]}{p.name?.last_name?.[0]}</span>
-                                                )}
-                                            </div>
-                                            <div className="min-w-0">
-                                                <p className="text-xs font-black text-slate-900 truncate leading-none mb-1">
-                                                    {p.name?.first_name} {p.name?.last_name}
-                                                </p>
-                                                <div className="flex items-center gap-1.5">
-                                                    <div className={`w-1.5 h-1.5 rounded-full ${isCurrentUser ? 'bg-orange-500' : 'bg-blue-600'}`}></div>
-                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.15em]">
-                                                        {isCurrentUser ? 'Your Stop' : 'Partner Stop'}
-                                                    </p>
+                                        <div className="flex flex-col gap-3 py-1 pr-2 min-w-[160px]">
+                                            {allPeople.map((person, pIdx) => (
+                                                <div key={pIdx} className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center font-black text-[10px] text-slate-500 overflow-hidden shrink-0 border border-slate-200">
+                                                        {person.profile_image ? (
+                                                            <img src={person.profile_image} alt="Profile" className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <span>{person.name?.first_name?.[0]}{person.name?.last_name?.[0]}</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-[10px] font-black text-slate-900 truncate leading-none mb-0.5">
+                                                            {person.name?.first_name} {person.name?.last_name}
+                                                        </p>
+                                                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">
+                                                            {person.is_requester ? 'Booking Owner' : 'Invited Guest'}
+                                                        </p>
+                                                    </div>
                                                 </div>
+                                            ))}
+                                            <div className="mt-1 pt-2 border-t border-slate-100 flex items-center gap-2">
+                                                <div className={`w-1.5 h-1.5 rounded-full ${isCurrentUser ? 'bg-orange-500' : 'bg-blue-600'}`}></div>
+                                                <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.15em]">
+                                                    {isCurrentUser ? 'Your Stop' : `Booking #${label}`}
+                                                </p>
                                             </div>
                                         </div>
                                     </Popup>

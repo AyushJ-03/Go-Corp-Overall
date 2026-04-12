@@ -1,8 +1,10 @@
 import express from "express"
 const router = express.Router();
 import { authUser } from "../../middleware/auth.middleware.js";
-import { bookRide, getClusters, getPendingRides, getInvitedPeople, getRidesWithEmployeeInvite, getRideEmployeeGroup, cancelRide, getRideById, getPendingBatches, verifyOtp, getLatestRideForAdmin } from "./ride.controller.js";
+import { bookRide, getClusters, getPendingRides, getInvitedPeople, getRidesWithEmployeeInvite, getRideEmployeeGroup, cancelRide, getRideById, getPendingBatches, verifyOtp, getLatestRideForAdmin, getCurrentRide } from "./ride.controller.js";
 import { body, param, query } from "express-validator"
+
+router.get("/current-ride", authUser, getCurrentRide);
 
 router.post("/book-ride", [
 

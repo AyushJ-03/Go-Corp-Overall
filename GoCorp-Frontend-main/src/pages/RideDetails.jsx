@@ -7,6 +7,7 @@ import ActionModal from '../components/common/ActionModal';
 import { MapLayer } from '../components/DashboardViews';
 import { MapEventsHandler, ChangeView } from './Dashboard';
 import { isValidPos } from '../utils/geoUtils';
+import ActiveRideTicket from '../components/rides/ActiveRideTicket';
 
 /**
  * RideDetails - Enhanced with Live Map & OSRM Polling
@@ -119,6 +120,25 @@ const RideDetails = () => {
     // Extract polyline from either clustering or batching info
     const rawPolyline = ride.batch?.pickup_polyline?.coordinates || ride.clustering?.pickup_polyline?.coordinates || [];
     const polyline = rawPolyline.map(p => [p[1], p[0]]);
+
+    // NEW: Handle transition to ActiveRideTicket for accepted rides
+    if (["ACCEPTED", "ARRIVED", "STARTED"].includes(ride.status)) {
+        return (
+            <ActiveRideTicket 
+                ride={ride} 
+                id={id} 
+                pPos={pPos} 
+                dPos={dPos} 
+                officePos={officePos} 
+                polyline={polyline} 
+                MapEventsHandler={MapEventsHandler} 
+                ChangeView={ChangeView} 
+                recenterTrigger={recenterTrigger} 
+                setRecenterTrigger={setRecenterTrigger} 
+                onCancelRequest={() => setShowCancelModal(true)}
+            />
+        );
+    }
 
     return (
         <div className='min-h-screen bg-linear-to-b from-slate-50 to-blue-50 flex flex-col font-sans select-none pb-32 text-slate-900 relative overflow-x-hidden'>

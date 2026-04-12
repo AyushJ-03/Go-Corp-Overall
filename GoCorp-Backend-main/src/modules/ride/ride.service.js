@@ -138,3 +138,22 @@ export const getEmployeesInRideGroup = async (rideId) => {
     throw error;
   }
 };
+
+/**
+ * Calculate total number of people across multiple RideRequests
+ * (Requesters + All Invited Guests)
+ */
+export const getTotalPeopleInRides = async (rideIds) => {
+  try {
+    const rides = await RideRequest.find({ _id: { $in: rideIds } });
+    let total = 0;
+    rides.forEach(ride => {
+      // 1 (Requester) + N (Invited)
+      total += 1 + (ride.invited_employee_ids?.length || 0);
+    });
+    return total;
+  } catch (error) {
+    console.error("Error calculating total people in rides:", error);
+    return rideIds.length; // Fallback to booking count if error
+  }
+};

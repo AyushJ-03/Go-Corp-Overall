@@ -101,3 +101,36 @@ export const logoutDriver = async (req, res, next) => {
       next(error || new ApiError(500, "Driver logout error"));
     }
 };
+
+export const updateLocation = async (req, res, next) => {
+  try {
+    const { driver_id, latitude, longitude } = req.body;
+
+    if (!latitude || !longitude) {
+      throw new ApiError(400, "Latitude and longitude are required");
+    }
+
+    const driverId = req.driver?._id || driver_id;
+
+    const driver = await Driver.findByIdAndUpdate(
+      driverId,
+      {
+        driver_location: {
+          type: "Point",
+          coordinates: [parseFloat(longitude), parseFloat(latitude)]
+        }
+      },
+      { new: true }
+    );
+
+    if (!driver) {
+      throw new ApiError(404, "Driver not found");
+    }
+
+    res.status(200).json(new ApiResponse(200, "Location updated successfully", {
+      location: driver.driver_location
+    }));
+  } catch (error) {
+    next(error || new ApiError(500, "Location update error"));
+  }
+};

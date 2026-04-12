@@ -1,5 +1,5 @@
 import express from "express";
-import { createDriver, loginDriver, getDriverProfile, logoutDriver } from "./driver.controller.js";
+import { createDriver, loginDriver, getDriverProfile, logoutDriver, updateLocation } from "./driver.controller.js";
 import { body } from "express-validator";
 import { authDriver } from "../../middleware/auth.middleware.js";
 
@@ -34,6 +34,8 @@ router.post('/login',[
 router.get('/profile', authDriver, getDriverProfile)
 
 router.get('/logout', authDriver, logoutDriver)
+
+router.patch('/update-location', authDriver, updateLocation)
 
 
 export default router
