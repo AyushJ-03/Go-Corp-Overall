@@ -53,15 +53,15 @@ export default function AdminUserSearch({ officeId, onSelect, onClear }) {
 
     return (
         <div ref={searchRef} className="w-full">
-            <div className={`relative group transition-all duration-300 ${showResults && results.length > 0 ? 'rounded-t-2xl bg-white shadow-xl' : 'rounded-2xl bg-white border border-dash-border shadow-sm group-hover:shadow-md'}`}>
-                <div className="flex items-center px-4 py-3">
+            <div className={`relative group transition-all duration-500 border ${isSearching ? 'ring-4 ring-blue-500/15 border-blue-500 shadow-[0_0_25px_rgba(59,130,246,0.15)] scale-[1.01]' : 'focus-within:ring-4 focus-within:ring-blue-500/10 focus-within:border-blue-400 shadow-sm'} ${showResults && results.length > 0 ? 'rounded-t-2xl bg-white shadow-xl border-dash-border' : 'rounded-2xl bg-white border-dash-border group-hover:border-dash-border/80 group-hover:shadow-md'}`}>
+                <div className="flex items-center px-4 py-3 ">
                     <Search className={`w-5 h-5 transition-colors ${isSearching ? 'text-dash-blue animate-pulse' : 'text-dash-muted'}`} />
                     <input 
                         type="text"
                         value={query}
                         onChange={(e) => handleSearch(e.target.value)}
                         placeholder="Search employee ride..."
-                        className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-bold text-dash-text px-3 placeholder:text-dash-muted/50"
+                        className="flex-1 bg-transparent border-none focus:ring-0 outline-none text-sm font-bold text-dash-text px-3 placeholder:text-dash-muted/50"
                     />
                     {query && (
                         <button onClick={clearSearch} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">

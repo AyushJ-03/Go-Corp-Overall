@@ -274,7 +274,7 @@ export default function Overview() {
 
       {/* 🟢 SEARCH BAR & DISPATCH CONTROLS */}
       <div className="flex justify-center">
-        <div className="w-full max-w-4xl px-4">
+        <div className="w-full max-w-4xl px-3">
             <AdminUserSearch 
               officeId={activeOfficeId} 
               onSelect={handleUserSelect} 

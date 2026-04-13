@@ -38,14 +38,19 @@ export default function Topbar() {
       navigate('/login', { replace: true });
     }
   };
+  const today = new Date().getDate();
+  const dayAndMonth = new Date().toLocaleDateString('en-US', {
+  weekday: 'short',
+  month: 'short'
+});
 
   return (
     <header className="h-20 flex items-center justify-between px-8 bg-transparent relative z-50">
       {/* Date & Search */}
       <div className="flex items-center gap-6 flex-1">
         <div className="bg-white border border-gray-100 rounded-2xl px-4 py-2 flex flex-col items-center justify-center min-w-[70px] shadow-sm">
-          <span className="text-xl font-bold text-gray-900 leading-none">25</span>
-          <span className="text-[10px] text-gray-500 uppercase font-bold mt-1">Thu Jan</span>
+          <span className="text-xl font-bold text-gray-900 leading-none">{today}</span>
+          <span className="text-[10px] text-gray-500 uppercase font-bold mt-1">{dayAndMonth}</span>
         </div>
         
         <div className="relative w-full max-w-md">

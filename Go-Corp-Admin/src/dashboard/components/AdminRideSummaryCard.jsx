@@ -119,7 +119,7 @@ export default function AdminRideSummaryCard({ ride, employee, onClose, onSelect
                             <CreditCard size={14} className="text-dash-blue" />
                             <span className="text-[9px] font-bold text-dash-muted uppercase tracking-wider">Est. Fare</span>
                         </div>
-                        <p className="text-xs font-bold text-dash-text">₹{ride.batch?.estimated_fare || ride.estimated_fare || 120}</p>
+                        <p className="text-xs font-bold text-dash-text">₹{ride.allocated_fare || ride.batch?.estimated_fare || ride.estimated_fare || 0}</p>
                     </div>
                 </div>
 

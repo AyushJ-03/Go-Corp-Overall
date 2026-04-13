@@ -42,7 +42,7 @@ export default function BookingTable({ data }) {
                 {item.destination_type ? (item.destination_type === 'OFFICE' ? 'Office HQ' : 'Home') : 'Office HQ'}
               </td>
               <td className="px-6 py-4 text-sm font-bold text-dash-text border-y border-dash-border">
-                ₹{item.estimated_fare || item.earning || 0}
+                ₹{item.allocated_fare || item.estimated_fare || item.earning || 0}
               </td>
               <td className="px-6 py-4 border-y border-dash-border">
                 <div className="flex justify-center">
