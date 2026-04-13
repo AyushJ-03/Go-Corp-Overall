@@ -22,17 +22,31 @@ import CoworkerSearchView from '../components/CoworkerSearchView';
 import AcceptedRidePopup from '../components/rides/AcceptedRidePopup';
 import { useNavigate } from 'react-router-dom';
 
-export const ChangeView = ({ center }) => {
+export const ChangeView = ({ center, autoFollow = true }) => {
   const map = useMapEvents({});
   const lastCenter = useRef(null);
+  const wasManuallyMoved = useRef(false);
+
+  // Detect when the user starts interacting with the map
+  useMapEvents({
+    movestart: () => {
+      wasManuallyMoved.current = true;
+    }
+  });
+
   useEffect(() => {
     if (!isValidPos(center)) return;
+    
     const key = `${center[0].toFixed(6)},${center[1].toFixed(6)}`;
     if (key !== lastCenter.current) {
-      map.setView(center, map.getZoom() || 15);
+      // If autoFollow is TRUE (Booking Flow), always snap to center.
+      // If autoFollow is FALSE (Ride Ticket), only snap if the user hasn't moved the map yet.
+      if (autoFollow || !wasManuallyMoved.current) {
+        map.setView(center, map.getZoom() || 15);
+      }
       lastCenter.current = key;
     }
-  }, [center, map]);
+  }, [center, map, autoFollow]);
   return null;
 };
 

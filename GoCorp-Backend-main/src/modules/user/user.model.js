@@ -75,6 +75,14 @@ const userSchema = new mongoose.Schema(
     }],
     profile_pic: {
       type: String
+    },
+    total_carpool_spent: {
+      type: Number,
+      default: 0
+    },
+    total_solo_spent_potential: {
+      type: Number,
+      default: 0
     }
   },
   {

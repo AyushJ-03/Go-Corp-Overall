@@ -120,7 +120,7 @@ export const MapLayer = ({
                     onReverseGeocode={onReverseGeocode}
                     bookingStep={bookingStep}
                 />
-                <ChangeView center={mapCenter} />
+                <ChangeView center={mapCenter} autoFollow={!interactive} />
 
                 {/* Auto-recenter on trigger or mount - ONLY for summary/ticket views */}
                 {(bookingStep === 'confirmSummary' || interactive) && (
