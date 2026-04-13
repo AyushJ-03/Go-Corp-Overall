@@ -79,6 +79,29 @@ export const getUserProfile = async () => {
     }
 };
 
+export const updateUserProfile = async (profileData) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/user/update-profile`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            },
+            body: JSON.stringify(profileData),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to update profile');
+        
+        // Update local storage user data
+        localStorage.setItem('user', JSON.stringify(data.data.user));
+        
+        return data.data.user;
+    } catch (error) {
+        console.error('Error updating profile:', error);
+        throw error;
+    }
+}
+
 export const isAuthenticated = () => {
   return !!localStorage.getItem('token');
 };

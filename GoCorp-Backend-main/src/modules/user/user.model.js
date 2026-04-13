@@ -72,7 +72,10 @@ const userSchema = new mongoose.Schema(
       name: String,
       addr: String,
       pos: [Number]
-    }]
+    }],
+    profile_pic: {
+      type: String
+    }
   },
   {
     timestamps: true

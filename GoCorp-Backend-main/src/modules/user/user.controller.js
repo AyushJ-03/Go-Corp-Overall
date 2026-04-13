@@ -119,7 +119,7 @@ export const logoutUser = async (req, res, next) => {
 
 export const updateUserProfile = async (req, res, next) => {
   try {
-    const { name, contact, home_address, office_address, recent_locations, saved_locations } = req.body;
+    const { name, contact, home_address, office_address, recent_locations, saved_locations, profile_pic } = req.body;
 
     const user = await User.findById(req.user._id);
 
@@ -143,6 +143,7 @@ export const updateUserProfile = async (req, res, next) => {
     if (office_address) user.office_address = office_address;
     if (recent_locations) user.recent_locations = recent_locations;
     if (saved_locations) user.saved_locations = saved_locations;
+    if (profile_pic) user.profile_pic = profile_pic;
 
     await user.save();
     await user.populate('office_id');
