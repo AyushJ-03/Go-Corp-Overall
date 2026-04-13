@@ -17,7 +17,7 @@ const PER_KM_RATE = 12; // Rate per km in ₹
 /**
  * Calculate total distance from a LineString polyline (in km)
  */
-const calculatePolylineDistance = (polyline) => {
+export const calculatePolylineDistance = (polyline) => {
   try {
     if (!polyline || !polyline.coordinates || polyline.coordinates.length < 2) {
       return 0;
@@ -37,8 +37,10 @@ const calculatePolylineDistance = (polyline) => {
  * Formula: fare = baseFare + (distance * perKmRate)
  * Returns fare as integer
  */
-const calculateEstimatedFare = (distanceInKm) => {
-  return Math.round(BASE_FARE + (distanceInKm * PER_KM_RATE));
+export const calculateEstimatedFare = (distanceInKm) => {
+  const dist = distanceInKm || 0;
+  // Strictly enforce the BASE_FARE (40) as the absolute floor
+  return Math.max(BASE_FARE, Math.round(BASE_FARE + (dist * PER_KM_RATE)));
 };
 
 /**
@@ -846,14 +848,26 @@ export const routeRideRequest = async (ride) => {
     const scheduledAt = ride.scheduled_at;
 
     // Instantly create its real road route polyline to office if it doesn't exist
-    if (!ride.route_polyline || !ride.route_polyline.coordinates || ride.route_polyline.coordinates.length === 0) {
-      console.log(`[Clustering] Generating initial road route for Ride ${ride._id}`);
-      const coords = await getRoute([ride.pickup_location.coordinates, ride.drop_location.coordinates]);
-      ride.route_polyline = {
+    if (!ride.solo_estimated_fare || !ride.route_polyline || !ride.route_polyline.coordinates || ride.route_polyline.coordinates.length === 0) {
+      console.log(`[Clustering] Calculating solo fare and route for Ride ${ride._id}`);
+      let coords = ride.route_polyline?.coordinates;
+      if (!coords || coords.length === 0) {
+        coords = await getRoute([ride.pickup_location.coordinates, ride.drop_location.coordinates]);
+      }
+      
+      const soloPolyline = {
         type: "LineString",
         coordinates: coords
       };
-      await RideRequest.findByIdAndUpdate(ride._id, { route_polyline: ride.route_polyline });
+      
+      const soloDistance = calculatePolylineDistance(soloPolyline);
+      const soloFare = calculateEstimatedFare(soloDistance);
+      
+      await RideRequest.findByIdAndUpdate(ride._id, { 
+        route_polyline: soloPolyline,
+        solo_estimated_fare: soloFare,
+        solo_distance: soloDistance
+      });
     }
 
     // Case 1: Solo preference + size 1 → Direct to Batched

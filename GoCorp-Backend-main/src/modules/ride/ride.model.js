@@ -137,6 +137,15 @@ const rideRequestSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+
+    solo_estimated_fare: {
+      type: Number,
+      default: 0,
+    },
+    solo_distance: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true

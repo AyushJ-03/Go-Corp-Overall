@@ -488,13 +488,25 @@ export const getRideById = async (req, res, next) => {
       }
 
       if (batch) {
+        // AUTO-REPAIR: If solo_distance is missing but we have a polyline, calculate it now
+        if (!ride.solo_distance && ride.route_polyline?.coordinates?.length > 0) {
+          const { calculatePolylineDistance } = await import('../polling/polling.service.js');
+          ride.solo_distance = calculatePolylineDistance(ride.route_polyline);
+          await RideRequest.findByIdAndUpdate(ride._id, { solo_distance: ride.solo_distance });
+          console.log(`[Sync-Repair] Recovered solo_distance: ${ride.solo_distance} for ride ${ride._id}`);
+        }
+
         responseData.batch = {
           batch_id: batch._id,
           batch_size: batch.batch_size,
           status: batch.status,
           pickup_polyline: batch.pickup_polyline,
           driver_id: batch.driver_id,
-          estimated_fare: batch.estimated_fare,
+          estimated_distance: batch.estimated_distance, // Total Group Distance
+          estimated_fare: batch.estimated_fare, // Total batch fare
+          allocated_fare: ride.allocated_fare,   // Individually calculated share
+          solo_estimated_fare: ride.solo_estimated_fare, // What they would pay solo
+          solo_distance: ride.solo_distance // Their direct travel distance
         };
         
         if (batch.status === 'DRIVER_ACCEPTED' || batch.driver_accepted) {

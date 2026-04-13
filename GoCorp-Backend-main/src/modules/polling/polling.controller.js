@@ -1,6 +1,7 @@
 import { RideRequest } from "../ride/ride.model.js"; import mongoose from "mongoose";
 import { Clustering } from "./clustering.model.js";
 import { Batched } from "./batched.model.js";
+import { User } from "../user/user.model.js";
 import ApiResponse from "../../utils/ApiResponse.js";
 import ApiError from "../../utils/ApiError.js";
 import { routeRideRequest } from "./polling.service.js";
@@ -343,7 +344,7 @@ export const acceptBatch = async (req, res, next) => {
       },
       { new: true }
     )
-      .populate("ride_ids", "_id employee_id pickup_location drop_location status")
+      .populate("ride_ids", "_id employee_id invited_employee_ids pickup_location drop_location status")
       .populate("driver_id", "_id name email contact vehicle profile_pic status")
       .populate("office_id", "_id name office_location");
 
@@ -358,23 +359,38 @@ export const acceptBatch = async (req, res, next) => {
         return R * c;
       };
 
-      let totalDistance = 0;
-      const rideDistanceMap = updatedBatch.ride_ids.map(r => {
+      let totalWeightedDistance = 0;
+      const rideMetaMap = updatedBatch.ride_ids.map(r => {
         const [pLng, pLat] = r.pickup_location.coordinates;
         const [dLng, dLat] = r.drop_location.coordinates;
         const distance = calculateDistance(pLat, pLng, dLat, dLng);
-        totalDistance += distance;
-        return { id: r._id, distance };
+        
+        // Weighting logic: distance * (requester + guests)
+        const occupantCount = 1 + (r.invited_employee_ids?.length || 0);
+        const weightedDistance = distance * occupantCount;
+        
+        totalWeightedDistance += weightedDistance;
+        return { id: r._id, weightedDistance, occupantCount };
       });
 
-      for (const rideMeta of rideDistanceMap) {
+      for (const rideMeta of rideMetaMap) {
         let allocatedFare = 0;
-        if (totalDistance > 0) {
-          const proportion = rideMeta.distance / totalDistance;
+        
+        // Base calculation logic: Base ₹40 + ₹12 per KM (Solo Distance)
+        // We use this to ensure we NEVER have a 0 fare, even if the primary estimator fails.
+        const rideRef = updatedBatch.ride_ids.find(r => r._id.toString() === rideMeta.id.toString());
+        const soloDist = rideRef?.solo_distance || (rideMeta.weightedDistance / rideMeta.occupantCount) || 2.0;
+        const calculatedMinFare = Math.round(40 + (soloDist * 12));
+
+        if (totalWeightedDistance > 0 && updatedBatch.estimated_fare > 0) {
+          const proportion = rideMeta.weightedDistance / totalWeightedDistance;
           allocatedFare = Math.round(updatedBatch.estimated_fare * proportion);
+          
+          // Guarantee that the allocated fare is never lower than a reasonable minimum
+          allocatedFare = Math.max(allocatedFare, Math.round(calculatedMinFare * 0.7)); 
         } else {
-          // Fallback if coordinates were identical (0 distance)
-          allocatedFare = Math.round(updatedBatch.estimated_fare / updatedBatch.ride_ids.length);
+          // Robust fallback if batch data is missing: Use the calculated minimum
+          allocatedFare = calculatedMinFare;
         }
 
         await RideRequest.findByIdAndUpdate(rideMeta.id, {
@@ -570,23 +586,69 @@ export const completeBatch = async (req, res, next) => {
        return res.status(200).json(new ApiResponse(200, "Batch already marked as completed", batch));
     }
 
-    // Update batch status
+    // Update batch status and populate ride details for stats
     const updatedBatch = await Batched.findByIdAndUpdate(
       batch_id,
       {
         status: "COMPLETED",
       },
       { new: true }
-    );
+    ).populate({
+      path: "ride_ids",
+      select: "_id employee_id invited_employee_ids allocated_fare solo_estimated_fare"
+    });
 
-    // Synchronize individual ride statuses within the batch
+    // Synchronize individual ride statuses and Update User lifetime stats
     if (updatedBatch && updatedBatch.ride_ids.length > 0) {
-      const rideIds = updatedBatch.ride_ids.map(r => r._id || r);
+      const rideIds = updatedBatch.ride_ids.map(r => r._id);
+      
+      // Update all rides to COMPLETED
       await RideRequest.updateMany(
         { _id: { $in: rideIds } },
         { $set: { status: "COMPLETED" } }
       );
-      console.log(`[Batch-Complete] Synchronized ${rideIds.length} rides to COMPLETED for batch ${batch_id}`);
+
+      // Increment User Lifetime Stats for every participant in every ride of the batch
+      for (const ride of updatedBatch.ride_ids) {
+        // Core data for this specific ride
+        const guests = Array.isArray(ride.invited_employee_ids) ? ride.invited_employee_ids : [];
+        const participantIds = [ride.employee_id, ...guests];
+        const occupantCount = participantIds.length;
+
+        // Dynamic Fallback: If allocated_fare is 0, estimate it based on ride solo distance or distance
+        // This ensures stats are updated even for legacy test data.
+        let allocatedFare = ride.allocated_fare || 0;
+        let soloFarePotential = ride.solo_estimated_fare || (allocatedFare * 1.5) || 120; // fallback potential
+
+        if (allocatedFare === 0) {
+            // Use ₹12/km logic as a safe fallback for the entire ride
+            const baseFare = 40;
+            const dist = ride.solo_distance || 5.0; // Assume 5km if unknown
+            allocatedFare = Math.round(baseFare + (dist * 12));
+            if (soloFarePotential === 120) soloFarePotential = Math.round(allocatedFare * 1.8);
+        }
+
+        const sharePerPerson = Math.max(1, Math.round(allocatedFare / occupantCount));
+        const soloSharePerPerson = Math.max(1, Math.round(soloFarePotential / occupantCount));
+
+        // Update each unique participant (Requester and Guests)
+        const uniqueParticipants = [...new Set(participantIds.map(id => id.toString()))];
+        
+        for (const userId of uniqueParticipants) {
+          try {
+            await User.findByIdAndUpdate(userId, {
+              $inc: {
+                total_carpool_spent: sharePerPerson,
+                total_solo_spent_potential: soloSharePerPerson
+              }
+            });
+          } catch (updateErr) {
+            console.error(`[Stats-Error] Failed to update user ${userId}:`, updateErr);
+          }
+        }
+
+        console.log(`[Batch-Complete] Updated stats for ${uniqueParticipants.length} people (Carpool Share: ${sharePerPerson})`);
+      }
     }
 
     console.log(`[Batch Completion] Driver ${driver_id} completed batch ${batch_id}`);
