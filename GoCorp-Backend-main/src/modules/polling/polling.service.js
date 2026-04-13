@@ -234,7 +234,7 @@ export const can_cluster = async (newRide, existingCluster) => {
  * Shared Helper: Update a group's logical order and polyline route
  * Used by merge operations to ensure the carpool is always optimized
  */
-const updateGroupRouteAndOrder = async (rideIds, groupDoc, type = 'cluster') => {
+export const updateGroupRouteAndOrder = async (rideIds, groupDoc, type = 'cluster') => {
   const allRides = await RideRequest.find({ _id: { $in: rideIds } });
   if (allRides.length === 0) return groupDoc;
 
@@ -284,8 +284,68 @@ const updateGroupRouteAndOrder = async (rideIds, groupDoc, type = 'cluster') => 
     estimated_distance: distanceInKm,
     estimated_fare: estimatedFare
   };
-
   return await Model.findByIdAndUpdate(groupDoc._id, { $set: updateData }, { new: true });
+};
+
+/**
+ * DISSOLUTION: Break a Batch or Cluster entirely and return survivors to pool
+ * Triggered by any cancellation (Owner or Guest)
+ */
+export const dissolveGroupAndReturnToPool = async (groupId, groupType, excludedRideIds = []) => {
+  try {
+    const Model = groupType === 'batch' ? Batched : Clustering;
+    const group = await Model.findById(groupId);
+    if (!group) return;
+
+    // Get survivors (those not in excludedRideIds and currently in the group)
+    const survivorIds = group.ride_ids.filter(id => !excludedRideIds.includes(id.toString()));
+
+    // 1. Delete the old group (Batch or Cluster)
+    if (groupType === 'batch') {
+      await Batched.findByIdAndDelete(groupId);
+    } else {
+      await Clustering.findByIdAndDelete(groupId);
+    }
+
+    if (survivorIds.length === 0) return;
+
+    // 2. Create a NEW Clustering document for survivors to stay together initially
+    // We use the first survivor's data for the centroid reference
+    const firstSurvivor = await RideRequest.findById(survivorIds[0]);
+    if (!firstSurvivor) return;
+
+    const newCluster = await Clustering.create({
+      office_id: group.office_id,
+      scheduled_at: group.scheduled_at,
+      ride_ids: survivorIds,
+      current_size: await getTotalPeopleInRides(survivorIds),
+      pickup_centroid: group.pickup_centroid || firstSurvivor.pickup_location,
+      drop_location: group.drop_location || firstSurvivor.drop_location,
+      pickup_polyline: group.pickup_polyline, // Reuse existing optimized route for now
+      status: "IN_CLUSTERING",
+      metadata: {
+        force_batched: false,
+        status_msg: "Group dissolved due to cancellation. Finding new matches..."
+      }
+    });
+
+    // 3. Update all survivor RideRequests
+    await RideRequest.updateMany(
+      { _id: { $in: survivorIds } },
+      { 
+        status: "IN_CLUSTERING", 
+        cluster_id: newCluster._id, 
+        batch_id: null 
+      }
+    );
+
+    // 4. Final Route/Fare Optimization for the new cluster (now smaller)
+    await updateGroupRouteAndOrder(survivorIds, newCluster, 'cluster');
+    
+    console.log(`[Dissolution] Group ${groupId} dissolved. ${survivorIds.length} survivors returned to pool in Cluster ${newCluster._id}`);
+  } catch (error) {
+    console.error("Error in dissolveGroupAndReturnToPool:", error);
+  }
 };
 
 /**
@@ -723,6 +783,7 @@ export const moveToBatched = async (cluster, forceBatched = false, reason = null
 
     const totalPeople = await getTotalPeopleInRides(uniqueRideIds);
 
+    // 1. Create the Batch record initially
     const batched = await Batched.create({
       office_id: cluster.office_id,
       scheduled_at: cluster.scheduled_at,
@@ -741,6 +802,10 @@ export const moveToBatched = async (cluster, forceBatched = false, reason = null
       },
     });
 
+    // 2. MANDATORY SORT: Strictly optimize the pickup order and re-calculate route for the new Batch
+    // This ensures the "Request Order" never leaks into the final Batch view
+    const finalizedBatch = await updateGroupRouteAndOrder(uniqueRideIds, batched, 'batch');
+
     // Update cluster status to indicate it has been promoted to a batch
     await Clustering.findByIdAndUpdate(cluster._id, {
       status: "BATCHED",
@@ -748,8 +813,8 @@ export const moveToBatched = async (cluster, forceBatched = false, reason = null
     });
 
     console.log(`[Batching] Promoting cluster ${cluster._id} to batch ${batched._id}`);
-    console.log(`[Batching] Rides in batch: ${uniqueRideIds.join(", ")}`);
-    console.log(`[Batching] Distance: ${distanceInKm.toFixed(2)} km | Fare: ₹${estimatedFare.toFixed(2)}`);
+    console.log(`[Batching] Optimized rides in batch: ${finalizedBatch.ride_ids.join(", ")}`);
+    console.log(`[Batching] Final Optimized Distance: ${finalizedBatch.estimated_distance.toFixed(2)} km`);
 
     // Update all rides in the batch to common 'CLUSTERED' status and sync IDs
     const updateResult = await RideRequest.updateMany(

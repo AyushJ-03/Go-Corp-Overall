@@ -1,6 +1,6 @@
 import express from "express";
 import { body, param, query } from "express-validator";
-import { authUser } from "../../middleware/auth.middleware.js";
+import { authUser, authDriver } from "../../middleware/auth.middleware.js";
 import {
   submitRideForPolling,
   getRideClusteringStatus,
@@ -10,6 +10,7 @@ import {
   getBatchDetails,
   getPollingStats,
   acceptBatch,
+  completeBatch,
 } from "./polling.controller.js";
 
 const router = express.Router();
@@ -106,6 +107,7 @@ router.get(
  */
 router.post(
   "/batch/accept",
+  authDriver,
   [body("batch_id").matches(/^[0-9a-fA-F]{24}$/).withMessage("Invalid batch ID format")],
   acceptBatch
 );
@@ -126,6 +128,17 @@ router.get(
     query("date").notEmpty().withMessage("date is required").isISO8601(),
   ],
   getPollingStats
+);
+
+/**
+ * POST /api/polling/batch/complete
+ * Complete a batch (driver finishes all rides in the batch)
+ */
+router.post(
+  "/batch/complete",
+  authDriver,
+  [body("batch_id").matches(/^[0-9a-fA-F]{24}$/).withMessage("Invalid batch ID format")],
+  completeBatch
 );
 
 export default router;

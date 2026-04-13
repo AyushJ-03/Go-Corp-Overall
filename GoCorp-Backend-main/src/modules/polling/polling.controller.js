@@ -320,6 +320,7 @@ export const acceptBatch = async (req, res, next) => {
     }
 
     const { batch_id } = req.body;
+    const driver_id = req.driver._id; // Identify the driver from auth token
 
     const batch = await Batched.findById(batch_id);
     if (!batch) {
@@ -330,18 +331,20 @@ export const acceptBatch = async (req, res, next) => {
       throw new ApiError(400, "Batch already accepted");
     }
 
-    // Update batch with driver acceptance
+    // Update batch with driver details and acceptance
     const updatedBatch = await Batched.findByIdAndUpdate(
       batch_id,
       {
+        driver_id, // CRITICAL: Link this driver to the batch
         driver_accepted: true,
         accepted_at: new Date(),
+        assigned_at: batch.assigned_at || new Date(), // Set assigned_at if not present
         status: "DRIVER_ACCEPTED",
       },
       { new: true }
     )
       .populate("ride_ids", "_id employee_id pickup_location drop_location")
-      .populate("driver_id", "_id name email contact vehicle")
+      .populate("driver_id", "_id name email contact vehicle profile_pic status")
       .populate("office_id", "_id name");
 
     // NEW: Synchronize individual ride statuses within the batch
@@ -354,11 +357,17 @@ export const acceptBatch = async (req, res, next) => {
       console.log(`[Batch-Sync] Synchronized ${rideIds.length} rides to ACCEPTED for batch ${batch_id}`);
     }
 
-    console.log(`[Batch Acceptance] Driver accepted batch ${batch_id}`);
+    console.log(`[Batch Acceptance] Driver ${driver_id} accepted batch ${batch_id}`);
 
     res.status(200).json(
       new ApiResponse(200, "Batch accepted successfully", {
         batch_id: updatedBatch._id,
+        driver_id: updatedBatch.driver_id._id,
+        driver_details: {
+          name: updatedBatch.driver_id.name,
+          vehicle: updatedBatch.driver_id.vehicle,
+          profile_pic: updatedBatch.driver_id.profile_pic
+        },
         driver_accepted: updatedBatch.driver_accepted,
         accepted_at: updatedBatch.accepted_at,
         status: updatedBatch.status,
@@ -495,6 +504,67 @@ export const getPollingStats = async (req, res, next) => {
           savingsIndex: Math.round(savings),
           theoreticalSoloCost: Math.round(theoreticalSoloCost)
         }
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Complete a batch (driver finishes all rides in the batch)
+ * Updates batch status to COMPLETED and all individual ride statuses to COMPLETED
+ */
+export const completeBatch = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json(new ApiResponse(400, "Validation errors", errors.array()));
+    }
+
+    const { batch_id } = req.body;
+    const driver_id = req.driver._id;
+
+    // Find the batch and verify it belongs to this driver
+    const batch = await Batched.findById(batch_id);
+    if (!batch) {
+      throw new ApiError(404, "Batch not found");
+    }
+
+    if (batch.driver_id.toString() !== driver_id.toString()) {
+      throw new ApiError(403, "You are not authorized to complete this batch");
+    }
+
+    if (batch.status === "COMPLETED") {
+       return res.status(200).json(new ApiResponse(200, "Batch already marked as completed", batch));
+    }
+
+    // Update batch status
+    const updatedBatch = await Batched.findByIdAndUpdate(
+      batch_id,
+      {
+        status: "COMPLETED",
+      },
+      { new: true }
+    );
+
+    // Synchronize individual ride statuses within the batch
+    if (updatedBatch && updatedBatch.ride_ids.length > 0) {
+      const rideIds = updatedBatch.ride_ids.map(r => r._id || r);
+      await RideRequest.updateMany(
+        { _id: { $in: rideIds } },
+        { $set: { status: "COMPLETED" } }
+      );
+      console.log(`[Batch-Complete] Synchronized ${rideIds.length} rides to COMPLETED for batch ${batch_id}`);
+    }
+
+    console.log(`[Batch Completion] Driver ${driver_id} completed batch ${batch_id}`);
+
+    res.status(200).json(
+      new ApiResponse(200, "Batch completed successfully", {
+        batch_id: updatedBatch._id,
+        status: updatedBatch.status,
+        ride_count: updatedBatch.ride_ids.length,
       })
     );
   } catch (error) {
