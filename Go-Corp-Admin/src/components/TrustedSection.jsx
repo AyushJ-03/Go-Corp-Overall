@@ -98,7 +98,7 @@ export default function TrustedSection() {
 
           <button
             className="px-12 py-4 rounded-full font-bold text-white text-lg shadow-[0_10px_40px_-10px_rgba(79,70,229,0.6)] transition-all hover:scale-105 active:scale-95"
-            style={{ 
+            style={{
               background: '#4f46e5',
               cursor: opacity > 0.1 ? 'pointer' : 'default',
             }}
