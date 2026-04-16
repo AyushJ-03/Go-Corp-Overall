@@ -69,6 +69,8 @@ router.get("/reverse", authUser, async (req, res) => {
     }
   };
 
+  const fetchPromise = fetchWithRetry();
+
   // Register in pending map
   pendingInbound.set(cacheKey, fetchPromise);
 
