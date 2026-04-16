@@ -212,6 +212,7 @@ const CustomerLocationPage = () => {
   const [routePath, setRoutePath] = useState(null)         // orange: full batch route
   const [driverRoutePath, setDriverRoutePath] = useState(null) // blue dashed: driver → stop 1
   const [loadingRoute, setLoadingRoute] = useState(false)
+  const [routeError, setRouteError] = useState(null)        // Track routing failures
   const [estimatedTime, setEstimatedTime] = useState(null)
 
   useEffect(() => {
@@ -246,6 +247,7 @@ const CustomerLocationPage = () => {
     setRoutePath(null);
     setDriverRoutePath(null);
     setEstimatedTime(null);
+    setRouteError(null);
   }, [currentRideIndex, currentRide?.rideId]);
 
   useEffect(() => {
@@ -279,18 +281,26 @@ const CustomerLocationPage = () => {
         if (batchPoints.length < 2) return;
 
         const wpFull = batchPoints.map(p => `${p[1]},${p[0]}`).join(';');
+        const primaryUrl = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${wpFull}?overview=full&geometries=geojson`;
+        const secondaryUrl = `https://router.project-osrm.org/route/v1/driving/${wpFull}?overview=full&geometries=geojson`;
+
         try {
-          const res = await fetch(
-            `https://routing.openstreetmap.de/routed-car/route/v1/driving/${wpFull}?overview=full&geometries=geojson`
-          );
+          let res;
+          try {
+            res = await fetch(primaryUrl, { signal: AbortSignal.timeout(6000) });
+          } catch {
+            res = await fetch(secondaryUrl, { signal: AbortSignal.timeout(6000) });
+          }
+          
           const data = await res.json();
           if (data.routes?.length > 0) {
             setRoutePath(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
           } else {
-            setRoutePath(batchPoints);
+            setRouteError('Could not find a valid route between stops');
           }
-        } catch {
-          setRoutePath(batchPoints);
+        } catch (err) {
+          console.error('Batch route fetch failed:', err);
+          setRouteError('Route service temporarily unavailable');
         }
       };
 
@@ -308,9 +318,12 @@ const CustomerLocationPage = () => {
           let response;
           try {
             response = await fetch(primaryUrl, { signal: controller.signal });
+            if (!response.ok) throw new Error('Primary OSRM failed');
           } catch {
+            console.warn('Primary OSRM failed, trying secondary...');
             response = await fetch(secondaryUrl, { signal: controller.signal });
           }
+          
           clearTimeout(timeoutId);
           const data = await response.json();
           if (data.routes?.length > 0) {
@@ -321,8 +334,8 @@ const CustomerLocationPage = () => {
           }
         } catch (err) {
           clearTimeout(timeoutId);
-          if (err.name !== 'AbortError') console.error('❌ Stop-1 driver route failed:', err);
-          setDriverRoutePath([[dLat, dLng], [cLat, cLng]]);
+          console.error('❌ Stop-1 driver route failed:', err.message);
+          setRouteError('Navigation service unavailable');
           setEstimatedTime(calculateTimeInMinutes(calculateDistance(dLat, dLng, cLat, cLng)));
         } finally {
           setLoadingRoute(false);
@@ -379,7 +392,9 @@ const CustomerLocationPage = () => {
         let response;
         try {
           response = await fetch(primaryUrl, { signal: controller.signal });
+          if (!response.ok) throw new Error('Primary OSRM failed');
         } catch {
+          console.warn('Primary OSRM failed, trying secondary...');
           response = await fetch(secondaryUrl, { signal: controller.signal });
         }
         clearTimeout(timeoutId);
@@ -393,8 +408,10 @@ const CustomerLocationPage = () => {
           throw new Error('No route found');
         }
       } catch (error) {
-        if (error.name !== 'AbortError') console.error('❌ Multi-point route fetch failed:', error);
-        setRoutePath(points);
+        if (error.name !== 'AbortError') {
+          console.error('❌ Multi-point route fetch failed:', error);
+          setRouteError('Routing service error');
+        }
         let totalDist = 0;
         for (let i = 0; i < points.length - 1; i++) {
           totalDist += calculateDistance(points[i][0], points[i][1], points[i+1][0], points[i+1][1]);
@@ -448,9 +465,16 @@ const CustomerLocationPage = () => {
         <div className="mt-auto bg-white rounded-t-[40px] p-8 pb-10 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] pointer-events-auto">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-extrabold text-gray-800">Customer Location</h2>
-            <span className="text-xs font-bold text-gray-400 bg-gray-50 px-3 py-1 rounded-full uppercase tracking-widest">
-              {estimatedTime ? `${estimatedTime} mins Away` : '⏳ Calculating...'}
-            </span>
+            <div className="flex flex-col items-end">
+              <span className="text-xs font-bold text-gray-400 bg-gray-50 px-3 py-1 rounded-full uppercase tracking-widest">
+                {estimatedTime ? `${estimatedTime} mins Away` : '⏳ Calculating...'}
+              </span>
+              {routeError && (
+                <span className="text-[10px] font-bold text-red-500 mt-1 animate-pulse">
+                  ⚠ {routeError}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-4 mb-8">

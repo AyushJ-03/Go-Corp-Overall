@@ -42,23 +42,34 @@ router.get("/reverse", authUser, async (req, res) => {
     }
   }
 
-  // 3. Perform External Request
-  const fetchPromise = (async () => {
-    const response = await axios.get(`https://nominatim.openstreetmap.org/reverse`, {
-      params: {
-        format: 'json',
-        lat,
-        lon,
-        zoom: 18,
-        addressdetails: 1
-      },
-      headers: {
-        'User-Agent': 'Ride-Dispatch-App/1.0',
-        'Accept-Language': 'en'
+  // 3. Perform External Request with Retry logic
+  const fetchWithRetry = async (retries = 2) => {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        const response = await axios.get(`https://nominatim.openstreetmap.org/reverse`, {
+          params: {
+            format: 'json',
+            lat,
+            lon,
+            zoom: 18,
+            addressdetails: 1
+          },
+          headers: {
+            'User-Agent': 'GoCorp-Ride-App/1.0 (contact@ayush.example.com)',
+            'Accept-Language': 'en'
+          },
+          timeout: 5000
+        });
+        return response.data;
+      } catch (err) {
+        if (i === retries) throw err;
+        console.warn(`Geocoding retry ${i + 1} for ${lat},${lon}`);
+        await new Promise(r => setTimeout(r, 1000));
       }
-    });
-    return response.data;
-  })();
+    }
+  };
+
+  const fetchPromise = fetchWithRetry();
 
   // Register in pending map
   pendingInbound.set(cacheKey, fetchPromise);
@@ -69,11 +80,12 @@ router.get("/reverse", authUser, async (req, res) => {
     cleanupCache(reverseCache);
     res.json({ success: true, data });
   } catch (error) {
-    console.error("Geocoding failed:", error.message);
+    console.error("Geocoding failed:", error.message, error.code);
     res.status(error.response?.status || 500).json({ 
       success: false, 
       message: "Geocoding failed",
-      error: error.message 
+      error: error.message,
+      code: error.code || 'UNKNOWN_ERROR'
     });
   } finally {
     // Always remove from pending once finished
@@ -92,30 +104,44 @@ router.get("/search", authUser, async (req, res) => {
     return res.json({ success: true, data: searchCache.get(q.toLowerCase()), cached: true });
   }
 
-  try {
-    const response = await axios.get(`https://nominatim.openstreetmap.org/search`, {
-      params: {
-        format: 'json',
-        q,
-        limit: 5,
-        addressdetails: 1
-      },
-      headers: {
-        'User-Agent': 'Ride-Dispatch-App/1.0',
-        'Accept-Language': 'en'
+  const fetchWithRetry = async (retries = 2) => {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        const response = await axios.get(`https://nominatim.openstreetmap.org/search`, {
+          params: {
+            format: 'json',
+            q,
+            limit: 5,
+            addressdetails: 1
+          },
+          headers: {
+            'User-Agent': 'GoCorp-Ride-App/1.0 (contact@ayush.example.com)',
+            'Accept-Language': 'en'
+          },
+          timeout: 5000
+        });
+        return response.data;
+      } catch (err) {
+        if (i === retries) throw err;
+        console.warn(`Search retry ${i + 1} for query: ${q}`);
+        await new Promise(r => setTimeout(r, 1000));
       }
-    });
+    }
+  };
 
-    searchCache.set(q.toLowerCase(), response.data);
+  try {
+    const data = await fetchWithRetry();
+    searchCache.set(q.toLowerCase(), data);
     cleanupCache(searchCache);
 
-    res.json({ success: true, data: response.data });
+    res.json({ success: true, data });
   } catch (error) {
-    console.error("Search failed:", error.message);
+    console.error("Search failed:", error.message, error.code);
     res.status(error.response?.status || 500).json({ 
       success: false, 
       message: "Search failed",
-      error: error.message 
+      error: error.message,
+      code: error.code || 'UNKNOWN_ERROR'
     });
   }
 });
