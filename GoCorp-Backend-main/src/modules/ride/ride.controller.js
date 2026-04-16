@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { RideRequest } from "./ride.model.js";
+import { User } from "../user/user.model.js";
 import { Office } from "../office/office.model.js";
 import ApiResponse from "../../utils/ApiResponse.js";
 import ApiError from "../../utils/ApiError.js";
@@ -957,6 +958,79 @@ export const getAllOfficeRides = async (req, res, next) => {
     res.status(200).json(new ApiResponse(200, "Rides history retrieved successfully", rides));
   } catch (error) {
     next(error || new ApiError(500, "Error retrieving rides history"));
+  }
+};
+
+export const getReportStats = async (req, res, next) => {
+  try {
+    const { office_id } = req.params;
+
+    if (!office_id.match(/^[0-9a-fA-F]{24}$/)) {
+      throw new ApiError(400, "Invalid office ID format");
+    }
+
+    // 1. Calculate Total Savings from User lifetime stats
+    const savingsData = await User.aggregate([
+      { $match: { office_id: new mongoose.Types.ObjectId(office_id) } },
+      {
+        $group: {
+          _id: null,
+          totalCarpool: { $sum: "$total_carpool_spent" },
+          totalSolo: { $sum: "$total_solo_spent_potential" }
+        }
+      }
+    ]);
+
+    const { totalCarpool = 0, totalSolo = 0 } = savingsData[0] || {};
+    const totalSavings = totalSolo - totalCarpool;
+
+    // 2. Rank users by COMPLETED ride count
+    const frequentUsers = await RideRequest.aggregate([
+      { 
+        $match: { 
+          office_id: new mongoose.Types.ObjectId(office_id),
+          status: "COMPLETED" 
+        } 
+      },
+      {
+        $group: {
+          _id: "$employee_id",
+          rides: { $sum: 1 }
+        }
+      },
+      { $sort: { rides: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "userDetails"
+        }
+      },
+      { $unwind: "$userDetails" },
+      {
+        $project: {
+          _id: 1,
+          rides: 1,
+          name: "$userDetails.name",
+          email: "$userDetails.email",
+          profile_pic: "$userDetails.profile_pic"
+        }
+      }
+    ]);
+
+    res.status(200).json(new ApiResponse(200, "Report stats retrieved", {
+      savings: {
+        totalSolo,
+        totalCarpool,
+        totalSavings
+      },
+      frequentUsers
+    }));
+
+  } catch (error) {
+    next(error || new ApiError(500, "Error fetching report stats"));
   }
 };
 

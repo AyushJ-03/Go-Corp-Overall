@@ -747,7 +747,7 @@ const Dashboard = () => {
                 driver={activeRide?.batch?.driver_id}
                 onViewTicket={() => {
                     setShowAcceptedPopup(false);
-                    navigate(`/ride/${activeRide._id}`);
+                    navigate(`/ride/details/${activeRide._id}`);
                 }}
                 onDismiss={() => setShowAcceptedPopup(false)}
             />

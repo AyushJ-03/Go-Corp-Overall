@@ -212,14 +212,14 @@ const CustomerLocationPage = () => {
   const [routePath, setRoutePath] = useState(null)         // orange: full batch route
   const [driverRoutePath, setDriverRoutePath] = useState(null) // blue dashed: driver → stop 1
   const [loadingRoute, setLoadingRoute] = useState(false)
-  const [routeError, setRouteError] = useState(null)        // Track routing failures
+  const [routeError, setRouteError] = useState(null)
   const [estimatedTime, setEstimatedTime] = useState(null)
 
   useEffect(() => {
     // Get accepted ride or batch data from localStorage
     const acceptedRide = localStorage.getItem('acceptedRide')
     const acceptedBatch = localStorage.getItem('acceptedBatch')
-    
+
     if (acceptedBatch) {
       const batch = JSON.parse(acceptedBatch)
       setBatchData(batch)
@@ -291,7 +291,7 @@ const CustomerLocationPage = () => {
           } catch {
             res = await fetch(secondaryUrl, { signal: AbortSignal.timeout(6000) });
           }
-          
+
           const data = await res.json();
           if (data.routes?.length > 0) {
             setRoutePath(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
@@ -307,11 +307,11 @@ const CustomerLocationPage = () => {
       // ── 1b. Driver → Stop 1 (blue dashed) ──────────────────────────────────
       const fetchDriverToStop1 = async () => {
         setLoadingRoute(true);
-        const waypoints    = `${dLng},${dLat};${cLng},${cLat}`;
-        const primaryUrl   = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
+        const waypoints = `${dLng},${dLat};${cLng},${cLat}`;
+        const primaryUrl = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
         const secondaryUrl = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
-        const controller   = new AbortController();
-        const timeoutId    = setTimeout(() => controller.abort(), 7000);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 7000);
 
         try {
           console.log('🔵 [Stop 1] Fetching driver → customer route...');
@@ -323,7 +323,6 @@ const CustomerLocationPage = () => {
             console.warn('Primary OSRM failed, trying secondary...');
             response = await fetch(secondaryUrl, { signal: controller.signal });
           }
-          
           clearTimeout(timeoutId);
           const data = await response.json();
           if (data.routes?.length > 0) {
@@ -383,11 +382,11 @@ const CustomerLocationPage = () => {
       try {
         console.log('📍 Fetching multi-point route...');
         const waypoints = points.map(p => `${p[1]},${p[0]}`).join(';');
-        const primaryUrl   = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
+        const primaryUrl = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
         const secondaryUrl = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
 
         const controller = new AbortController();
-        const timeoutId  = setTimeout(() => controller.abort(), 6000);
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
 
         let response;
         try {
@@ -414,7 +413,7 @@ const CustomerLocationPage = () => {
         }
         let totalDist = 0;
         for (let i = 0; i < points.length - 1; i++) {
-          totalDist += calculateDistance(points[i][0], points[i][1], points[i+1][0], points[i+1][1]);
+          totalDist += calculateDistance(points[i][0], points[i][1], points[i + 1][0], points[i + 1][1]);
         }
         setEstimatedTime(calculateTimeInMinutes(totalDist));
       } finally {
@@ -499,14 +498,14 @@ const CustomerLocationPage = () => {
             </div>
             <div className="flex-1"></div>
             <div className="flex gap-2">
-                <button className="w-12 h-12 bg-orange-50 rounded-full flex justify-center items-center text-primary">
-                    <MessageSquare size={20} fill="currentColor" className="opacity-20" />
-                    <MessageSquare size={20} className="absolute" />
-                </button>
-                <button className="w-12 h-12 bg-orange-50 rounded-full flex justify-center items-center text-primary">
-                    <Phone size={20} fill="currentColor" className="opacity-20" />
-                    <Phone size={20} className="absolute" />
-                </button>
+              <button className="w-12 h-12 bg-orange-50 rounded-full flex justify-center items-center text-primary">
+                <MessageSquare size={20} fill="currentColor" className="opacity-20" />
+                <MessageSquare size={20} className="absolute" />
+              </button>
+              <button className="w-12 h-12 bg-orange-50 rounded-full flex justify-center items-center text-primary">
+                <Phone size={20} fill="currentColor" className="opacity-20" />
+                <Phone size={20} className="absolute" />
+              </button>
             </div>
           </div>
 

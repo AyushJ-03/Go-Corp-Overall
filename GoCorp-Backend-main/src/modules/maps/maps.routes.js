@@ -26,7 +26,7 @@ router.get("/reverse", authUser, async (req, res) => {
 
   // Round for cache stability (approx 1m precision)
   const cacheKey = `${parseFloat(lat).toFixed(5)},${parseFloat(lon).toFixed(5)}`;
-  
+
   // 1. Check Cache
   if (reverseCache.has(cacheKey)) {
     return res.json({ success: true, data: reverseCache.get(cacheKey), cached: true });
@@ -42,7 +42,7 @@ router.get("/reverse", authUser, async (req, res) => {
     }
   }
 
-  // 3. Perform External Request with Retry logic
+  // 3. Perform External Request
   const fetchWithRetry = async (retries = 2) => {
     for (let i = 0; i <= retries; i++) {
       try {
@@ -58,7 +58,7 @@ router.get("/reverse", authUser, async (req, res) => {
             'User-Agent': 'GoCorp-Ride-App/1.0 (contact@ayush.example.com)',
             'Accept-Language': 'en'
           },
-          timeout: 5000
+          timeout: 5000,
         });
         return response.data;
       } catch (err) {
@@ -68,8 +68,6 @@ router.get("/reverse", authUser, async (req, res) => {
       }
     }
   };
-
-  const fetchPromise = fetchWithRetry();
 
   // Register in pending map
   pendingInbound.set(cacheKey, fetchPromise);
@@ -81,8 +79,8 @@ router.get("/reverse", authUser, async (req, res) => {
     res.json({ success: true, data });
   } catch (error) {
     console.error("Geocoding failed:", error.message, error.code);
-    res.status(error.response?.status || 500).json({ 
-      success: false, 
+    res.status(error.response?.status || 500).json({
+      success: false,
       message: "Geocoding failed",
       error: error.message,
       code: error.code || 'UNKNOWN_ERROR'
@@ -133,12 +131,11 @@ router.get("/search", authUser, async (req, res) => {
     const data = await fetchWithRetry();
     searchCache.set(q.toLowerCase(), data);
     cleanupCache(searchCache);
-
     res.json({ success: true, data });
   } catch (error) {
     console.error("Search failed:", error.message, error.code);
-    res.status(error.response?.status || 500).json({ 
-      success: false, 
+    res.status(error.response?.status || 500).json({
+      success: false,
       message: "Search failed",
       error: error.message,
       code: error.code || 'UNKNOWN_ERROR'

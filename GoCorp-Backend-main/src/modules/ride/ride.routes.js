@@ -1,7 +1,7 @@
 import express from "express"
 const router = express.Router();
 import { authUser } from "../../middleware/auth.middleware.js";
-import { bookRide, getClusters, getPendingRides, getInvitedPeople, getRidesWithEmployeeInvite, getRideEmployeeGroup, cancelRide, getRideById, getPendingBatches, verifyOtp, getLatestRideForAdmin, getCurrentRide, getAllOfficeRides } from "./ride.controller.js";
+import { bookRide, getClusters, getPendingRides, getInvitedPeople, getRidesWithEmployeeInvite, getRideEmployeeGroup, cancelRide, getRideById, getPendingBatches, verifyOtp, getLatestRideForAdmin, getCurrentRide, getAllOfficeRides, getReportStats } from "./ride.controller.js";
 import { body, param, query } from "express-validator"
 
 router.get("/current-ride", authUser, getCurrentRide);
@@ -75,5 +75,9 @@ router.post("/verify-otp", [
   body('ride_id').notEmpty().withMessage('Ride ID is required'),
   body('otp').notEmpty().withMessage('OTP is required')
 ], verifyOtp);
+
+router.get("/admin/reports/stats/:office_id", [
+  param('office_id').matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid office ID format')
+], authUser, getReportStats);
 
 export default router;

@@ -205,3 +205,20 @@ export const getOfficeRidesHistory = async (officeId) => {
         throw error;
     }
 };
+/**
+ * Fetch report statistics including total savings and user rankings
+ */
+export const getReportStats = async (officeId) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/ride/admin/reports/stats/${officeId}`, {
+            method: 'GET',
+            headers: getHeaders(),
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.message || "Failed to fetch report stats");
+        return json.data;
+    } catch (error) {
+        console.error("Error fetching report stats:", error);
+        throw error;
+    }
+};
