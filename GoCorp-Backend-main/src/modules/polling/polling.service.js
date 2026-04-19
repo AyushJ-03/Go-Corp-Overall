@@ -684,42 +684,51 @@ export const handleCase6_GroupSize4 = async (ride) => {
  */
 export const mergeClusters = async (newRide, existingCluster) => {
   try {
-    // SOURCE-OF-TRUTH REFRESH: Fetch the absolute latest members from the DB
-    const refreshedCluster = await Clustering.findById(existingCluster._id);
-    if (!refreshedCluster) throw new ApiError(404, "Cluster lost during merge");
-
+    const newRideId = new mongoose.Types.ObjectId(newRide._id);
     const newEmployees = await getEmployeesInRideGroup(newRide._id);
-    const newTotalSize = refreshedCluster.current_size + newEmployees.length;
+    const joinerSize = newEmployees.length;
 
-    if (newTotalSize > MAX_CLUSTER_SIZE) {
-      throw new ApiError(400, "Cannot merge: would exceed max cluster size");
+    // ATOMIC JOIN: Only join if we haven't already and there is space
+    // This prevents race conditions where two simultaneous requests join the same cluster
+    const refreshedCluster = await Clustering.findOneAndUpdate(
+      { 
+        _id: existingCluster._id, 
+        ride_ids: { $ne: newRideId },
+        current_size: { $lte: MAX_CLUSTER_SIZE - joinerSize }
+      },
+      { 
+        $addToSet: { ride_ids: newRideId },
+        $inc: { current_size: joinerSize }
+      },
+      { new: true }
+    );
+
+    if (!refreshedCluster) {
+      // Check if we didn't join because we were already there (idempotency)
+      const alreadyJoined = await Clustering.findOne({ _id: existingCluster._id, ride_ids: newRideId });
+      if (alreadyJoined) return await updateGroupRouteAndOrder(alreadyJoined.ride_ids, alreadyJoined, 'cluster');
+      
+      throw new ApiError(400, "Cannot merge: cluster lost or would exceed max size");
     }
 
     // GHOST CLEANUP: If the new ride was accidentally in another cluster, remove it
-    // This prevents "Split Groups" where different users see different clusters
     await Clustering.deleteMany({
-      _id: { $ne: existingCluster._id },
-      ride_ids: newRide._id
+      _id: { $ne: refreshedCluster._id },
+      ride_ids: newRideId
     });
 
-    // Atomic Sync: Update members with the refreshed list
-    const allRideIds = [...refreshedCluster.ride_ids, newRide._id].map(id => new mongoose.Types.ObjectId(id));
+    const allRideIds = refreshedCluster.ride_ids;
 
-    console.log(`[Merge-Audit] Refreshing Cluster ${existingCluster._id}. Current members: ${refreshedCluster.ride_ids.length}. Adding User 2/3.`);
+    console.log(`[Merge-Audit] Atomic join to Cluster ${refreshedCluster._id}. New size: ${refreshedCluster.current_size}`);
 
-    await Promise.all([
-      RideRequest.updateMany(
-        { _id: { $in: allRideIds } },
-        { status: "IN_CLUSTERING", cluster_id: existingCluster._id }
-      ),
-      // Individual hard-update for the joiner to ensure zero-lag sync
-      RideRequest.findByIdAndUpdate(newRide._id, {
-        status: "IN_CLUSTERING",
-        cluster_id: existingCluster._id
-      })
-    ]);
-
-    console.log(`[Clustering] Atomic sync completed for ${allRideIds.length} rides in cluster ${existingCluster._id}`);
+    await RideRequest.updateMany(
+      { _id: { $in: allRideIds } },
+      { 
+        status: "IN_CLUSTERING", 
+        cluster_id: refreshedCluster._id,
+        batch_id: null 
+      }
+    );
 
     // Update group route and order using shared helper
     return await updateGroupRouteAndOrder(allRideIds, refreshedCluster, 'cluster');
@@ -731,37 +740,43 @@ export const mergeClusters = async (newRide, existingCluster) => {
 
 export const mergeIntoBatch = async (newRide, existingBatch) => {
   try {
-    // SOURCE-OF-TRUTH REFRESH: Fetch the absolute latest batch state
-    const refreshedBatch = await Batched.findById(existingBatch._id);
-    if (!refreshedBatch) throw new ApiError(404, "Batch lost during merge");
-
+    const newRideId = new mongoose.Types.ObjectId(newRide._id);
     const newEmployees = await getEmployeesInRideGroup(newRide._id);
-    const newTotalSize = refreshedBatch.batch_size + newEmployees.length;
+    const joinerSize = newEmployees.length;
 
-    if (newTotalSize > MAX_CLUSTER_SIZE) {
-      throw new ApiError(400, "Cannot merge: batch would exceed max size");
+    // ATOMIC JOIN: Only join if we haven't already and there is space
+    const refreshedBatch = await Batched.findOneAndUpdate(
+      { 
+        _id: existingBatch._id, 
+        ride_ids: { $ne: newRideId },
+        batch_size: { $lte: MAX_CLUSTER_SIZE - joinerSize }
+      },
+      { 
+        $addToSet: { ride_ids: newRideId },
+        $inc: { batch_size: joinerSize }
+      },
+      { new: true }
+    );
+
+    if (!refreshedBatch) {
+      const alreadyJoined = await Batched.findOne({ _id: existingBatch._id, ride_ids: newRideId });
+      if (alreadyJoined) return await updateGroupRouteAndOrder(alreadyJoined.ride_ids, alreadyJoined, 'batch');
+      
+      throw new ApiError(400, "Cannot merge: batch lost or would exceed max size");
     }
 
-    // Atomic Sync: Hard-link the joiner directly to the Batch
-    const allRideIds = [...refreshedBatch.ride_ids, newRide._id].map(id => new mongoose.Types.ObjectId(id));
+    const allRideIds = refreshedBatch.ride_ids;
 
-    console.log(`[Merge-Audit] Refreshing Batch ${existingBatch._id}. Current members: ${refreshedBatch.ride_ids.length}. Adding Joiner.`);
+    console.log(`[Merge-Audit] Atomic join to Batch ${refreshedBatch._id}. New size: ${refreshedBatch.batch_size}`);
 
-    await Promise.all([
-      RideRequest.updateMany(
-        { _id: { $in: allRideIds } },
-        {
-          status: "CLUSTERED",
-          batch_id: existingBatch._id,
-          cluster_id: null // Clear cluster link as we are now batched
-        }
-      ),
-      RideRequest.findByIdAndUpdate(newRide._id, {
+    await RideRequest.updateMany(
+      { _id: { $in: allRideIds } },
+      {
         status: "CLUSTERED",
-        batch_id: existingBatch._id,
+        batch_id: refreshedBatch._id,
         cluster_id: null
-      })
-    ]);
+      }
+    );
 
     // Update group route and order using shared helper
     return await updateGroupRouteAndOrder(allRideIds, refreshedBatch, 'batch');
@@ -776,50 +791,69 @@ export const mergeIntoBatch = async (newRide, existingBatch) => {
  */
 export const moveToBatched = async (cluster, forceBatched = false, reason = null) => {
   try {
-    // Ensure all ride_ids are unique ObjectIds to avoid duplication or type issues
-    const uniqueRideIds = [...new Set(cluster.ride_ids.map(id => id.toString()))].map(id => new mongoose.Types.ObjectId(id));
+    // IDEMPOTENCY CHECK: Did someone already batch this cluster?
+    const existingBatch = await Batched.findOne({ "metadata.clustering_id": cluster._id });
+    if (existingBatch) {
+      console.log(`[Batching] Cluster ${cluster._id} already batched as ${existingBatch._id}. Skipping.`);
+      return existingBatch;
+    }
+
+    // ATOMIC CLAIM: Try to move status to BATCHING_IN_PROGRESS
+    // This ensures only one server instance promotes this cluster
+    const claimedCluster = await Clustering.findOneAndUpdate(
+      { _id: cluster._id, status: { $in: ["IN_CLUSTERING", "READY_FOR_BATCH"] } },
+      { $set: { status: "BATCHING_IN_PROGRESS" } },
+      { new: true }
+    );
+
+    if (!claimedCluster) {
+      // If we couldn't claim it, it's either already BATCHED or being BATCHED by another process
+      const retryBatch = await Batched.findOne({ "metadata.clustering_id": cluster._id });
+      if (retryBatch) return retryBatch;
+      throw new ApiError(400, "Cluster already processed or in progress");
+    }
+
+    // Ensure all ride_ids are unique ObjectIds
+    const uniqueRideIds = [...new Set(claimedCluster.ride_ids.map(id => id.toString()))].map(id => new mongoose.Types.ObjectId(id));
 
     // Calculate distance and fare from polyline
-    const distanceInKm = calculatePolylineDistance(cluster.pickup_polyline);
+    const distanceInKm = calculatePolylineDistance(claimedCluster.pickup_polyline);
     const estimatedFare = calculateEstimatedFare(distanceInKm);
 
     const totalPeople = await getTotalPeopleInRides(uniqueRideIds);
 
     // 1. Create the Batch record initially
     const batched = await Batched.create({
-      office_id: cluster.office_id,
-      scheduled_at: cluster.scheduled_at,
+      office_id: claimedCluster.office_id,
+      scheduled_at: claimedCluster.scheduled_at,
       ride_ids: uniqueRideIds,
       batch_size: totalPeople,
-      pickup_polyline: cluster.pickup_polyline,
-      pickup_centroid: cluster.pickup_centroid,
-      drop_location: cluster.drop_location,
+      pickup_polyline: claimedCluster.pickup_polyline,
+      pickup_centroid: claimedCluster.pickup_centroid,
+      drop_location: claimedCluster.drop_location,
       estimated_distance: distanceInKm,
       estimated_fare: estimatedFare,
       status: "CREATED",
       metadata: {
         force_batched: forceBatched,
         force_batch_reason: reason,
-        clustering_id: cluster._id,
+        clustering_id: claimedCluster._id,
       },
     });
 
-    // 2. MANDATORY SORT: Strictly optimize the pickup order and re-calculate route for the new Batch
-    // This ensures the "Request Order" never leaks into the final Batch view
+    // 2. MANDATORY SORT
     const finalizedBatch = await updateGroupRouteAndOrder(uniqueRideIds, batched, 'batch');
 
-    // Update cluster status to indicate it has been promoted to a batch
-    await Clustering.findByIdAndUpdate(cluster._id, {
+    // Update cluster status to indicate it has been completed
+    await Clustering.findByIdAndUpdate(claimedCluster._id, {
       status: "BATCHED",
       batch_id: batched._id,
     });
 
-    console.log(`[Batching] Promoting cluster ${cluster._id} to batch ${batched._id}`);
-    console.log(`[Batching] Optimized rides in batch: ${finalizedBatch.ride_ids.join(", ")}`);
-    console.log(`[Batching] Final Optimized Distance: ${finalizedBatch.estimated_distance.toFixed(2)} km`);
+    console.log(`[Batching] Promoting cluster ${claimedCluster._id} to batch ${batched._id}`);
 
-    // Update all rides in the batch to common 'CLUSTERED' status and sync IDs
-    const updateResult = await RideRequest.updateMany(
+    // Update all rides in the batch
+    await RideRequest.updateMany(
       { _id: { $in: uniqueRideIds } },
       {
         status: "CLUSTERED",
@@ -828,10 +862,12 @@ export const moveToBatched = async (cluster, forceBatched = false, reason = null
       }
     );
 
-    console.log(`[Batching] Successfully updated ${updateResult.modifiedCount} rides to CLUSTERED for batch ${batched._id}.`);
-
     return batched;
   } catch (error) {
+    // ROLLBACK ATOMIC CLAIM: If creation failed, move back to IN_CLUSTERING so it can be retried
+    if (error.code !== 11000) { // Don't rollback if it's a duplicate key error (meaning another process won)
+      await Clustering.findByIdAndUpdate(cluster._id, { status: "IN_CLUSTERING" });
+    }
     console.error("Error in moveToBatched:", error);
     throw error;
   }

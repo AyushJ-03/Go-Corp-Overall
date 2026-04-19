@@ -328,25 +328,36 @@ export const acceptBatch = async (req, res, next) => {
       throw new ApiError(404, "Batch not found");
     }
 
-    if (batch.driver_accepted) {
-      throw new ApiError(400, "Batch already accepted");
-    }
-
-    // Update batch with driver details and acceptance
-    const updatedBatch = await Batched.findByIdAndUpdate(
-      batch_id,
+    // ATOMIC ACCEPTANCE: Only allow if the batch hasn't been accepted yet
+    const updatedBatch = await Batched.findOneAndUpdate(
+      { 
+        _id: batch_id, 
+        status: { $in: ["CREATED", "READY_FOR_ASSIGNMENT"] },
+        driver_accepted: false 
+      },
       {
-        driver_id, // CRITICAL: Link this driver to the batch
-        driver_accepted: true,
-        accepted_at: new Date(),
-        assigned_at: batch.assigned_at || new Date(), // Set assigned_at if not present
-        status: "DRIVER_ACCEPTED",
+        $set: {
+          driver_id,
+          driver_accepted: true,
+          accepted_at: new Date(),
+          assigned_at: batch.assigned_at || new Date(),
+          status: "DRIVER_ACCEPTED",
+        }
       },
       { new: true }
     )
-      .populate("ride_ids", "_id employee_id invited_employee_ids pickup_location drop_location status")
+      .populate("ride_ids", "_id employee_id invited_employee_ids pickup_location drop_location status solo_distance")
       .populate("driver_id", "_id name email contact vehicle profile_pic status")
       .populate("office_id", "_id name office_location");
+
+    if (!updatedBatch) {
+      // Check if it was already accepted by THIS driver (idempotency)
+      const alreadyAccepted = await Batched.findOne({ _id: batch_id, driver_id, status: "DRIVER_ACCEPTED" });
+      if (alreadyAccepted) {
+         return res.status(200).json(new ApiResponse(200, "Batch already accepted by you", alreadyAccepted));
+      }
+      throw new ApiError(400, "Batch already accepted by another driver or is unavailable");
+    }
 
     // NEW: Synchronize individual ride statuses within the batch and allocate fare
     if (updatedBatch && updatedBatch.ride_ids.length > 0) {
@@ -582,21 +593,30 @@ export const completeBatch = async (req, res, next) => {
       throw new ApiError(403, "You are not authorized to complete this batch");
     }
 
-    if (batch.status === "COMPLETED") {
-       return res.status(200).json(new ApiResponse(200, "Batch already marked as completed", batch));
-    }
-
-    // Update batch status and populate ride details for stats
-    const updatedBatch = await Batched.findByIdAndUpdate(
-      batch_id,
+    // ATOMIC COMPLETION: Ensure we only process completion once
+    const updatedBatch = await Batched.findOneAndUpdate(
+      { 
+        _id: batch_id, 
+        driver_id: driver_id, // Safety check: driver must own the batch
+        status: { $ne: "COMPLETED" } 
+      },
       {
-        status: "COMPLETED",
+        $set: { status: "COMPLETED" }
       },
       { new: true }
     ).populate({
       path: "ride_ids",
-      select: "_id employee_id invited_employee_ids allocated_fare solo_estimated_fare"
+      select: "_id employee_id invited_employee_ids allocated_fare solo_estimated_fare solo_distance"
     });
+
+    if (!updatedBatch) {
+       // Check if already completed
+       const isDone = await Batched.findOne({ _id: batch_id, status: "COMPLETED" });
+       if (isDone) {
+          return res.status(200).json(new ApiResponse(200, "Batch already marked as completed", isDone));
+       }
+       throw new ApiError(400, "Failed to complete batch: already completed or unauthorized");
+    }
 
     // Synchronize individual ride statuses and Update User lifetime stats
     if (updatedBatch && updatedBatch.ride_ids.length > 0) {
