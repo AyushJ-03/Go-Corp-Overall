@@ -4,8 +4,9 @@ import Navbar from '../components/Navbar';
 import Hero from '../components/Hero';
 import Footer from '../components/Footer';
 import ProblemSection from '../components/ProblemSection';
-import SpeedEfficiencySection from '../components/SpeedEfficiencySection';
-import TrustedSection from '../components/TrustedSection';
+import AppShowcaseSection from '../components/AppShowcaseSection';
+import ValuePropsSection from '../components/ValuePropsSection';
+
 
 export default function LandingPage() {
   return (
@@ -31,11 +32,13 @@ export default function LandingPage() {
         {/* Legacy Systems — solid blue */}
         <ProblemSection />
 
-        {/* Speed & Efficiency — scroll driven animation */}
-        <SpeedEfficiencySection />
+        {/* App Showcase — lavender bg with phone mockup + video */}
+        <AppShowcaseSection />
 
-        {/* Trusted Section — overlay that covers SpeedEfficiencySection */}
-        <TrustedSection />
+        {/* Value Props — scroll-driven oval cards */}
+        <ValuePropsSection />
+
+
       </div>
 
       {/* Floating Chat Widget */}
