@@ -269,10 +269,65 @@ export const getOfficeEmployees = async (req, res, next) => {
     const users = await User.find({
       office_id: req.user.office_id,
       role: 'EMPLOYEE'
-    }).select('name email contact role createdAt');
+    }).select('name email contact role createdAt total_rides total_carpool_spent');
     
     res.status(200).json(new ApiResponse(200, "Office employees retrieved", users));
   } catch (error) {
     next(error || new ApiError(500, "Error fetching office employees"));
+  }
+};
+
+export const updateUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { name, email, contact, home_address, password } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    // Check authority (admin must be in same office)
+    if (user.office_id.toString() !== req.user.office_id.toString()) {
+      throw new ApiError(403, "Unauthorized to update this user");
+    }
+
+    if (name?.first_name) user.name.first_name = name.first_name;
+    if (name?.last_name) user.name.last_name = name.last_name;
+    if (email) user.email = email;
+    if (contact) user.contact = contact;
+    if (home_address) user.home_address = home_address;
+    
+    if (password) {
+      user.password = await User.hashPassword(password);
+    }
+
+    await user.save();
+
+    res.status(200).json(new ApiResponse(200, "User updated successfully", user));
+  } catch (error) {
+    next(error || new ApiError(500, "Error updating user"));
+  }
+};
+
+export const deleteUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    // Check authority
+    if (user.office_id.toString() !== req.user.office_id.toString()) {
+      throw new ApiError(403, "Unauthorized to delete this user");
+    }
+
+    await User.findByIdAndDelete(userId);
+
+    res.status(200).json(new ApiResponse(200, "User deleted successfully"));
+  } catch (error) {
+    next(error || new ApiError(500, "Error deleting user"));
   }
 };

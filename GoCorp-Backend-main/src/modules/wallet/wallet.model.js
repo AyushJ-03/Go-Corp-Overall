@@ -15,6 +15,10 @@ const officeWalletSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    isLowBalanceAlertSent: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true },
 );

@@ -2,6 +2,40 @@ import mongoose from "mongoose";
 import OfficeWallet from "./wallet.model.js";
 import OfficeWalletTransaction from "./walletTransaction.model.js";
 import { calculateBlockedAmount } from "../../utils/fareBuffer.js";
+import { sendLowBalanceEmail } from "../notification/notification.service.js";
+import { User } from "../user/user.model.js";
+
+const checkAndSendLowBalanceAlert = async (officeId, newBalance) => {
+    try {
+        const wallet = await OfficeWallet.findOne({ officeId });
+        
+        if (wallet && newBalance < 2000 && !wallet.isLowBalanceAlertSent) {
+            console.log(`[WalletService] Balance is ${newBalance}, below 2000 for office ${officeId}. Triggering first-time alert.`);
+            
+            const admins = await User.find({ office_id: officeId, role: "OFFICE_ADMIN" });
+            
+            const adminEmails = admins.map(admin => admin.email).filter(Boolean);
+            
+            if (adminEmails.length > 0) {
+                // Send email
+                const success = await sendLowBalanceEmail(adminEmails, newBalance, officeId);
+                
+                if (success) {
+                    // Mark as sent in DB only if email was successful
+                    wallet.isLowBalanceAlertSent = true;
+                    await wallet.save();
+                    console.log(`[WalletService] Alert flag set to true for office ${officeId}.`);
+                } else {
+                    console.error(`[WalletService] Failed to send email alert for office ${officeId}. Flag NOT set.`);
+                }
+            } else {
+                console.warn(`[WalletService] No OFFICE_ADMIN found for office ${officeId} to send alert.`);
+            }
+        }
+    } catch (e) {
+        console.error("[WalletService] Error triggering low balance alert:", e);
+    }
+};
 
 export const addMoney = async (officeId, amount) => {
 
@@ -14,6 +48,9 @@ export const addMoney = async (officeId, amount) => {
         });
     } else {
         wallet.balance += amount;
+        if (wallet.balance >= 2000) {
+            wallet.isLowBalanceAlertSent = false;
+        }
         await wallet.save();
     }
 
@@ -43,6 +80,8 @@ export const blockAmount = async (officeId, estimatedFare, rideId) => {
         throw new Error("Office wallet insufficient");
     }
 
+    const oldBalance = wallet.balance;
+
     wallet.balance -= amountToBlock;
     wallet.blockedBalance += amountToBlock;
 
@@ -55,6 +94,8 @@ export const blockAmount = async (officeId, estimatedFare, rideId) => {
         rideId: rId,
         description: "Ride booking auto block"
     });
+
+    checkAndSendLowBalanceAlert(oId, wallet.balance);
 
     return wallet;
 };
@@ -92,6 +133,8 @@ export const deductFinalFare = async (officeId, finalAmount, rideId) => {
         console.warn(`[WalletService] Wallet blocked balance (${wallet.blockedBalance}) is less than specific block (${blockedAmount})`);
     }
 
+    const oldBalance = wallet.balance;
+
     // 1. Clear the blocked amount from reserve
     wallet.blockedBalance = Math.max(0, wallet.blockedBalance - blockedAmount);
 
@@ -128,6 +171,9 @@ export const deductFinalFare = async (officeId, finalAmount, rideId) => {
     });
 
     console.log(`[WalletService] Successfully updated wallet. New balance: ${wallet.balance}`);
+    
+    checkAndSendLowBalanceAlert(oId, wallet.balance);
+
     return wallet;
 };
 

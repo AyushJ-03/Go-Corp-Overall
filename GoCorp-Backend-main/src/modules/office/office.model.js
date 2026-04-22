@@ -57,6 +57,13 @@ const officeSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
         },
+        
+        notification_settings: {
+            low_balance_priority: { type: String, enum: ['LOW', 'MEDIUM', 'HIGH'], default: 'HIGH' },
+            ride_updates_priority: { type: String, enum: ['LOW', 'MEDIUM', 'HIGH'], default: 'MEDIUM' },
+            system_alerts_priority: { type: String, enum: ['LOW', 'MEDIUM', 'HIGH'], default: 'LOW' },
+            enable_emails: { type: Boolean, default: true }
+        }
     },
     {
         timestamps: true

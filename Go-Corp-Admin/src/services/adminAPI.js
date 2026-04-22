@@ -170,6 +170,43 @@ export const addEmployee = async (employeeData) => {
 };
 
 /**
+ * Update an existing employee
+ */
+export const updateEmployee = async (userId, employeeData) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/user/update-user/${userId}`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify(employeeData),
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.message || "Failed to update employee");
+        return json.data;
+    } catch (error) {
+        console.error("Error updating employee:", error);
+        throw error;
+    }
+};
+
+/**
+ * Delete an employee
+ */
+export const deleteEmployee = async (userId) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/user/delete-user/${userId}`, {
+            method: 'DELETE',
+            headers: getHeaders(),
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.message || "Failed to delete employee");
+        return json.data;
+    } catch (error) {
+        console.error("Error deleting employee:", error);
+        throw error;
+    }
+};
+
+/**
  * Update office details including start/end time and working days
  */
 export const updateOfficeSettings = async (officeId, data) => {
@@ -219,6 +256,43 @@ export const getReportStats = async (officeId) => {
         return json.data;
     } catch (error) {
         console.error("Error fetching report stats:", error);
+        throw error;
+    }
+};
+
+/**
+ * Fetch notification history for the office
+ */
+export const getNotificationHistory = async (officeId) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/notification/history/${officeId}`, {
+            method: 'GET',
+            headers: getHeaders(),
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.message || "Failed to fetch notification history");
+        return json.data;
+    } catch (error) {
+        console.error("Error fetching notification history:", error);
+        throw error;
+    }
+};
+
+/**
+ * Update notification settings for the office
+ */
+export const updateNotificationSettings = async (officeId, settings) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/notification/settings/${officeId}`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify({ notification_settings: settings }),
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.message || "Failed to update notification settings");
+        return json.data;
+    } catch (error) {
+        console.error("Error updating notification settings:", error);
         throw error;
     }
 };

@@ -29,7 +29,7 @@ export default function Sidebar() {
         <div className="bg-yellow-400 p-2 rounded-lg">
           <Car size={24} className="text-black" />
         </div>
-        <span className="text-xl font-bold text-gray-900 tracking-tight">RapidRides</span>
+        <span className="text-xl font-bold text-gray-900 tracking-tight">GO Corp</span>
       </div>
 
       {/* Navigation */}
@@ -54,13 +54,6 @@ export default function Sidebar() {
 
       {/* Footer Actions */}
       <div className="p-4 space-y-2 border-t border-gray-100">
-        <NavLink
-          to="/dashboard/help"
-          className="flex items-center gap-4 px-4 py-3 text-gray-500 hover:bg-gray-50 hover:text-gray-900 rounded-xl transition-all"
-        >
-          <HelpCircle size={20} />
-          <span>Help & Support</span>
-        </NavLink>
         <button
           className="w-full flex items-center gap-4 px-4 py-3 text-gray-500 hover:bg-red-50 hover:text-red-600 rounded-xl transition-all mt-10"
           onClick={() => window.location.href = '/'}

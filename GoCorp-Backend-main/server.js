@@ -1,6 +1,9 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+
+dotenv.config();
+
 import { DB } from "./src/config/db.js";
 import companyRoutes from "./src/modules/company/company.routes.js";
 import officeRoutes from "./src/modules/office/office.routes.js";
@@ -10,10 +13,9 @@ import driverRoutes from "./src/modules/driver/driver.routes.js";
 import mapsRoutes from "./src/modules/maps/maps.routes.js";
 import pollingRoutes from "./src/modules/polling/polling.routes.js";
 import walletRoutes from "./src/modules/wallet/wallet.routes.js";
+import notificationRoutes from "./src/modules/notification/notification.routes.js";
 import { initForceBatchJob, initCleanupJob } from "./src/modules/polling/polling.jobs.js";
 import cookieParser from "cookie-parser";
-
-dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -37,6 +39,7 @@ app.use("/api/maps", mapsRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/polling", pollingRoutes);
 app.use("/api/wallet", walletRoutes);
+app.use("/api/notification", notificationRoutes);
 
 app.use((req, res, next) => {
   console.log(`[404] Not Found: ${req.method} ${req.originalUrl}`);

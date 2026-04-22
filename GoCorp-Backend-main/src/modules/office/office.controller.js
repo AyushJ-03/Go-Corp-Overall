@@ -53,15 +53,22 @@ export const getOfficeById = async (req, res, next) => {
 export const updateOffice = async (req, res, next) => {
   try {
     const { office_id } = req.params;
-    const { shift_start, shift_end, working_days } = req.body;
+    const { shift_start, shift_end, working_days, address, office_location } = req.body;
 
     if (!office_id || office_id.length !== 24) {
        return next(new ApiError(400, "Invalid office ID format"));
     }
 
+    const updateData = {};
+    if (shift_start !== undefined) updateData.shift_start = shift_start;
+    if (shift_end !== undefined) updateData.shift_end = shift_end;
+    if (working_days !== undefined) updateData.working_days = working_days;
+    if (address) updateData.address = address;
+    if (office_location) updateData.office_location = office_location;
+
     const office = await Office.findByIdAndUpdate(
       office_id,
-      { shift_start, shift_end, working_days },
+      { $set: updateData },
       { new: true, runValidators: true }
     );
 

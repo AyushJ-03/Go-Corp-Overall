@@ -18,6 +18,8 @@ export default function Finance() {
   const [error, setError] = useState(null);
   const [wallet, setWallet] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [activeFilter, setActiveFilter] = useState('ALL');
+  const [showAllTransactions, setShowAllTransactions] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Get office ID from localStorage (set during login/auth)
@@ -142,11 +144,26 @@ export default function Finance() {
     const typeMap = {
       'CREDIT': 'Recharge',
       'DEBIT': 'Ride Payment',
-      'BLOCK': 'Fare Blocked',
+      'BLOCK': 'Blocked Fare',
       'RELEASE': 'Refund/Release',
     };
     return typeMap[type?.toUpperCase()] || type;
   };
+
+  const filteredTransactions = activeFilter === 'ALL' 
+    ? transactions 
+    : transactions.filter(t => {
+        const type = t.type?.toUpperCase();
+        if (activeFilter === 'BLOCK') return type === 'BLOCK';
+        if (activeFilter === 'DEBIT') return type === 'DEBIT';
+        if (activeFilter === 'RELEASE') return type === 'RELEASE';
+        if (activeFilter === 'CREDIT') return type === 'CREDIT';
+        return true;
+      });
+
+  const displayedTransactions = showAllTransactions 
+    ? filteredTransactions 
+    : filteredTransactions.slice(0, 10);
 
   const getStatusBadgeColor = (status) => {
     switch(status?.toUpperCase()) {
@@ -273,23 +290,39 @@ export default function Finance() {
         </div>
       )}
 
-      {/* Recent Transactions */}
       <div className="space-y-4">
-        <div className="flex justify-between items-center px-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 px-4">
           <h2 className="text-2xl font-bold text-dash-text">Recent Transactions</h2>
-          <div className="flex gap-2">
-            <button className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-dash-border text-sm font-bold hover:bg-dash-bg transition-all shadow-sm">
-              <Filter size={16} />
-              All Transactions
-              <ChevronRight size={14} />
-            </button>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'ALL', label: 'All' },
+              { id: 'BLOCK', label: 'Blocked Fare' },
+              { id: 'DEBIT', label: 'Ride Payment' },
+              { id: 'RELEASE', label: 'Refund/Release' },
+              { id: 'CREDIT', label: 'Recharge' }
+            ].map(f => (
+              <button 
+                key={f.id}
+                onClick={() => setActiveFilter(f.id)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                  activeFilter === f.id 
+                    ? 'bg-dash-blue text-white border-dash-blue shadow-lg shadow-dash-blue/20' 
+                    : 'bg-white text-dash-muted border-dash-border hover:bg-dash-bg'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
         </div>
 
         <div className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm border border-dash-border">
-          {transactions.length === 0 ? (
-            <div className="p-8 text-center">
-              <p className="text-dash-muted font-bold">No transactions yet</p>
+          {filteredTransactions.length === 0 ? (
+            <div className="p-12 text-center flex flex-col items-center justify-center space-y-4">
+              <div className="p-4 bg-dash-bg rounded-full text-dash-muted">
+                <Filter size={32} />
+              </div>
+              <p className="text-dash-muted font-bold italic">No {activeFilter === 'ALL' ? '' : activeFilter.toLowerCase().replace('_', ' ')} transactions found</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -304,7 +337,7 @@ export default function Finance() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-dash-border">
-                  {transactions.map((transaction) => (
+                  {displayedTransactions.map((transaction) => (
                     <tr key={transaction._id} className="hover:bg-dash-bg transition-colors">
                       <td className="px-8 py-4">
                         <span className="text-sm font-bold text-dash-text">
@@ -366,33 +399,22 @@ export default function Finance() {
                   ))}
                 </tbody>
               </table>
+              
+              {!showAllTransactions && filteredTransactions.length > 10 && (
+                <div className="p-6 bg-dash-bg/30 border-t border-dash-border text-center">
+                  <button 
+                    onClick={() => setShowAllTransactions(true)}
+                    className="px-6 py-2 bg-white border border-dash-border rounded-xl text-xs font-bold text-dash-blue hover:bg-dash-blue hover:text-white transition-all shadow-sm"
+                  >
+                    View All {filteredTransactions.length} Transactions
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Payment Methods */}
-      <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-dash-border">
-        <h3 className="text-xl font-bold text-dash-text mb-6">Payment Methods</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="p-6 border border-dash-border rounded-2xl hover:bg-dash-bg transition-all cursor-pointer">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-bold text-dash-muted">Debit Card</span>
-              <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded">Primary</span>
-            </div>
-            <p className="text-lg font-bold text-dash-text">**** **** **** 4242</p>
-            <p className="text-xs text-dash-muted mt-2">Expires: 12/25</p>
-          </div>
-
-          <div className="p-6 border border-dash-border rounded-2xl hover:bg-dash-bg transition-all cursor-pointer">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-bold text-dash-muted">Bank Account</span>
-            </div>
-            <p className="text-lg font-bold text-dash-text">ICIC...****8901</p>
-            <p className="text-xs text-dash-muted mt-2">Savings Account</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
