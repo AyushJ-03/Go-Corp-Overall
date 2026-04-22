@@ -323,7 +323,6 @@ const CustomerLocationPage = () => {
             console.warn('Primary OSRM failed, trying secondary...');
             response = await fetch(secondaryUrl, { signal: controller.signal });
           }
-
           clearTimeout(timeoutId);
           const data = await response.json();
           if (data.routes?.length > 0) {
