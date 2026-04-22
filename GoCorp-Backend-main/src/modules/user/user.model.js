@@ -83,6 +83,10 @@ const userSchema = new mongoose.Schema(
     total_solo_spent_potential: {
       type: Number,
       default: 0
+    },
+    total_rides: {
+      type: Number,
+      default: 0
     }
   },
   {

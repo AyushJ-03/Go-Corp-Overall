@@ -1,5 +1,5 @@
 import { Router } from "express"
-import { createUser, getUserProfile, loginUser, logoutUser, updateUserProfile, getMyRides, searchUsers, getUserSummary, removeSavedLocation, getOfficeEmployees } from "./user.controller.js"
+import { createUser, getUserProfile, loginUser, logoutUser, updateUserProfile, getMyRides, searchUsers, getUserSummary, removeSavedLocation, getOfficeEmployees, updateUser, deleteUser } from "./user.controller.js"
 import { body } from "express-validator"
 import { authUser } from "../../middleware/auth.middleware.js"
 
@@ -35,6 +35,8 @@ router.get('/my-rides', authUser, getMyRides)
 router.get('/search', authUser, searchUsers)
 
 router.get('/office-employees', authUser, getOfficeEmployees)
+router.patch('/update-user/:userId', authUser, updateUser)
+router.delete('/delete-user/:userId', authUser, deleteUser)
 
 router.get('/summary', authUser, getUserSummary)
 router.delete('/saved-locations', authUser, removeSavedLocation)

@@ -136,6 +136,9 @@ export const bookRide = async (req, res, next) => {
       const pollingResult = await routeRideRequest(ride);
       console.log("Polling Result:", pollingResult);
 
+      // Increment user's total rides
+      await User.findByIdAndUpdate(employee_id, { $inc: { total_rides: 1 } });
+
       // CRITICAL: Refetch the ride to get the MODIFIED status from the polling system
       const updatedRide = await RideRequest.findById(ride._id)
         .populate('employee_id', 'name email profile_image')
@@ -1020,13 +1023,67 @@ export const getReportStats = async (req, res, next) => {
       }
     ]);
 
+    // 3. Monthly Spend Comparison (Last 6 Months, fixed window)
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const formattedComparison = [];
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    for (let i = 5; i >= 0; i--) {
+      let targetMonth = currentMonth - i;
+      let targetYear = currentYear;
+      
+      if (targetMonth < 0) {
+        targetMonth += 12;
+        targetYear -= 1;
+      }
+
+      formattedComparison.push({
+        month: targetMonth + 1,
+        year: targetYear,
+        label: monthNames[targetMonth],
+        value: 0
+      });
+    }
+
+    const sixMonthsAgo = new Date(formattedComparison[0].year, formattedComparison[0].month - 1, 1);
+
+    const monthlyComparison = await RideRequest.aggregate([
+      {
+        $match: {
+          office_id: new mongoose.Types.ObjectId(office_id),
+          status: "COMPLETED",
+          scheduled_at: { $gte: sixMonthsAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            month: { $month: "$scheduled_at" },
+            year: { $year: "$scheduled_at" }
+          },
+          totalSpend: { $sum: "$allocated_fare" }
+        }
+      }
+    ]);
+
+    // Fill values
+    formattedComparison.forEach(item => {
+      const match = monthlyComparison.find(db => db._id.month === item.month && db._id.year === item.year);
+      if (match) item.value = Math.round(match.totalSpend);
+    });
+
+    console.log(`[Reports] Generated 6-month trend for office ${office_id}:`, formattedComparison.map(f => f.label).join(", "));
+
     res.status(200).json(new ApiResponse(200, "Report stats retrieved", {
       savings: {
         totalSolo,
         totalCarpool,
         totalSavings
       },
-      frequentUsers
+      frequentUsers,
+      monthlyComparison: formattedComparison
     }));
 
   } catch (error) {

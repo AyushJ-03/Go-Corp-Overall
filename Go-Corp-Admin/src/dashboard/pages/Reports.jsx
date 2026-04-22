@@ -51,11 +51,6 @@ export default function Reports() {
           <p className="text-dash-muted mt-1 font-medium">Data-driven insights into your corporate mobility.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-dash-border rounded-xl text-sm font-bold text-dash-text hover:bg-gray-50 transition-all shadow-sm">
-            <Calendar size={18} />
-            All Time
-            <ChevronDown size={14} />
-          </button>
           <button className="flex items-center gap-2 px-6 py-3 bg-dash-blue text-white rounded-2xl text-sm font-bold hover:bg-blue-600 transition-all shadow-lg shadow-dash-blue/20">
             <Download size={18} />
             Generate PDF
@@ -149,82 +144,52 @@ export default function Reports() {
           </div>
         </div>
 
-        {/* No-show & Cancellations */}
+        {/* Cost Comparison Chart */}
         <div className="lg:col-span-1 space-y-8">
-           <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-dash-border">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 bg-red-50 rounded-2xl text-dash-red">
-                  <AlertTriangle size={20} />
-                </div>
-                <h3 className="text-xl font-bold text-dash-text">No-Show Reports</h3>
+           <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-dash-border flex flex-col">
+              <div className="flex items-center gap-3 mb-8">
+                  <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
+                    <TrendingUp size={20} />
+                  </div>
+                  <h3 className="text-xl font-bold text-dash-text">Budget Trend</h3>
               </div>
-              <div className="space-y-4">
-                 <div className="text-center py-6">
-                    <p className="text-4xl font-bold text-dash-red">0</p>
-                    <p className="text-xs font-bold text-dash-muted uppercase tracking-widest mt-2">Incidents this month</p>
-                 </div>
-                 <button className="w-full py-3 bg-dash-bg rounded-xl text-xs font-bold text-dash-text hover:bg-gray-100 transition-all opacity-50 cursor-not-allowed">View Incident Details</button>
+              
+              <div className="flex items-end gap-3 px-2 h-44">
+                {stats?.monthlyComparison?.map((m, i) => {
+                  const maxVal = Math.max(...stats.monthlyComparison.map(mc => mc.value), 1);
+                  // Fixed min height of 4px for zero bars so they are visible
+                  const height = m.value > 0 ? (m.value / maxVal) * 100 : 2; 
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-3 group relative h-full justify-end">
+                      <div 
+                        className={`w-full rounded-xl transition-all duration-1000 ${m.value > 0 ? 'bg-dash-blue shadow-lg shadow-dash-blue/10 group-hover:bg-indigo-500' : 'bg-dash-bg'} relative z-10`} 
+                        style={{ height: `${height}%` }}
+                      />
+                      <span className="text-[10px] font-bold text-dash-muted uppercase tracking-tighter relative z-10">{m.label}</span>
+                      
+                      {/* Tooltip */}
+                      {m.value > 0 && (
+                        <div className="absolute bottom-full mb-2 bg-dash-text text-white text-[10px] font-bold px-3 py-1.5 rounded-xl opacity-0 group-hover:opacity-100 transition-all transform group-hover:-translate-y-2 pointer-events-none whitespace-nowrap z-50 shadow-xl">
+                          ₹{m.value.toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-dash-border">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-bold text-dash-muted uppercase tracking-widest">Efficiency</p>
+                  <span className="text-xs font-black text-green-600">Stable</span>
+                </div>
               </div>
            </div>
 
-           <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-dash-border">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 bg-green-50 rounded-2xl text-dash-green">
-                  <PieChart size={20} />
-                </div>
-                <h3 className="text-xl font-bold text-dash-text">Dept. Usage</h3>
-              </div>
-              <div className="space-y-3">
-                 {[
-                   { name: 'Operations', val: 100, color: 'bg-dash-blue' },
-                   { name: 'Engineering', val: 0, color: 'bg-dash-green' },
-                   { name: 'Sales', val: 0, color: 'bg-dash-yellow' },
-                   { name: 'Others', val: 0, color: 'bg-gray-300' },
-                 ].map(dept => (
-                   <div key={dept.name}>
-                      <div className="flex justify-between text-[11px] font-bold text-dash-text mb-1 uppercase">
-                         <span>{dept.name}</span>
-                         <span>{dept.val}%</span>
-                      </div>
-                      <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                         <div className={`h-full ${dept.color} transition-all duration-1000`} style={{ width: `${dept.val}%` }} />
-                      </div>
-                   </div>
-                 ))}
-              </div>
-           </div>
+           
         </div>
       </div>
-
-      {/* Peak Booking Times */}
-      <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-dash-border">
-         <div className="flex items-center gap-3 mb-8">
-           <div className="p-3 bg-yellow-50 rounded-2xl text-dash-yellow">
-             <Clock size={20} />
-           </div>
-           <h3 className="text-xl font-bold text-dash-text">Peak Booking Times</h3>
-         </div>
-         
-         <div className="h-64 flex items-end gap-2 px-4 shadow-inner bg-dash-bg/30 rounded-3xl pt-8">
-            {Array.from({ length: 24 }).map((_, i) => {
-              const height = stats?.peakTimes?.[i] || Math.sin((i - 8) / 4) * 40 + 50 + Math.random() * 10;
-              const isPeak = i >= 8 && i <= 10 || i >= 17 && i <= 19;
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-2 group cursor-help relative">
-                   <div 
-                    className={`w-full rounded-t-lg transition-all duration-1000 ${isPeak ? 'bg-dash-blue/80' : 'bg-gray-200'} hover:bg-dash-blue`} 
-                    style={{ height: `${height}%` }}
-                  />
-                   <span className="text-[10px] font-bold text-dash-muted hidden md:block">{i % 6 === 0 ? `${i}:00` : ''}</span>
-                   {/* Tooltip */}
-                   <div className="absolute bottom-full mb-2 bg-dash-text text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
-                      {i}:00 - {Math.round(height)} bookings
-                   </div>
-                </div>
-              );
-            })}
-         </div>
-      </div>
+      
     </div>
   );
 }

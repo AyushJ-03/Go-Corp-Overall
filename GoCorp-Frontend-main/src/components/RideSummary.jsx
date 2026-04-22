@@ -45,7 +45,7 @@ const RideSummary = ({
 
     return (
         <div className='absolute inset-x-4 top-[10%] z-50 animate-in slide-in-from-top-10 duration-700 pointer-events-none'>
-            <div className='bg-white/20 backdrop-blur-xl rounded-[2.5rem] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-white/30 pointer-events-auto relative overflow-hidden'>
+            <div className='bg-white/20 backdrop-blur-xl rounded-[2.5rem] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-white/30 pointer-events-auto relative overflow-y-auto overflow-x-hidden max-h-[80vh] scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/20 overscroll-contain'>
                 {/* Decorative background glow */}
                 <div className='absolute -top-24 -right-24 w-48 h-48 bg-orange-400/20 rounded-full blur-3xl opacity-50'></div>
                 
