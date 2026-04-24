@@ -131,6 +131,10 @@ const batchedSchema = new mongoose.Schema(
 batchedSchema.index({ office_id: 1, scheduled_at: 1, status: 1 });
 batchedSchema.index({ scheduled_at: 1, status: 1 });
 batchedSchema.index({ driver_id: 1, status: 1 });
+batchedSchema.index({ "metadata.clustering_id": 1 }, { 
+  unique: true, 
+  partialFilterExpression: { "metadata.clustering_id": { $exists: true, $ne: null } } 
+});
 batchedSchema.index({ status: 1 });
 
 export const Batched = mongoose.model("Batched", batchedSchema);

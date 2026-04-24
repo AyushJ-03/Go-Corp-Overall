@@ -66,7 +66,7 @@ const clusteringSchema = new mongoose.Schema(
     // Status of the cluster
     status: {
       type: String,
-      enum: ["IN_CLUSTERING", "READY_FOR_BATCH", "BATCHED"],
+      enum: ["IN_CLUSTERING", "READY_FOR_BATCH", "BATCHING_IN_PROGRESS", "BATCHED"],
       default: "IN_CLUSTERING",
     },
 
