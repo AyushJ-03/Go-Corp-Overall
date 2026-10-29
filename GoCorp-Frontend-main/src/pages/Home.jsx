@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import image from '../assets/image.png';
 import driver from '../assets/driver.png';
 import heroWoman from '../assets/hero-woman.png';
+import logo from '../assets/Logo.png';
 
 const Home = () => {
   const navigate = useNavigate();
@@ -11,11 +12,12 @@ const Home = () => {
   return (
     <div className='w-full h-screen bg-white flex flex-col overflow-hidden font-sans'>
       {/* Top Section / Logo space */}
-      <div className='h-16 flex justify-center items-center shrink-0'>
-        {/* Placeholder for logo */}
-        <div className='w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center'>
-          <div className='w-5 h-5 bg-orange-500 rounded-md rotate-45'></div>
-        </div>
+      <div className="h-20 flex justify-center items-center shrink-0">
+        <img
+          src={logo}
+          alt="Go-Corp Logo"
+          className="h-12 w-auto object-contain"
+        />
       </div>
 
       {/* Main content area */}
