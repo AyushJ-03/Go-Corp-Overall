@@ -57,7 +57,7 @@ const Home = () => {
           {/* Main Hero Image */}
           <div className='relative w-48 h-60 bg-gray-50 rounded-4xl overflow-hidden shadow-xl z-10 border-4 border-white'>
             <img
-              src={herowoman}
+              src={heroWoman}
               alt='Hero Woman'
               className='w-full h-full object-cover'
             />
