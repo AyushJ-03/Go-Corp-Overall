@@ -39,7 +39,7 @@ const Login = () => {
 
         <form onSubmit={handleSignIn} className='w-full max-w-sm lg:max-w-md space-y-4 lg:space-y-5'>
           <div className={`${isServerOffline ? 'opacity-50 pointer-events-none' : ''} transition-opacity`}>
-            <label className='block text-gray-800 font-bold mb-1.5 lg:mb-2 text-[11px] lg:text-xs uppercase tracking-wider'>Email</label>
+            <label className='block text-gray-800 font-bold mb-1.5 lg:mb-2 text-[11px] lg:text-xs uppercase tracking-wider'>Email(test@gmail.com)</label>
             <input
               name='email'
               type='email'
@@ -52,7 +52,7 @@ const Login = () => {
           </div>
 
           <div className={`${isServerOffline ? 'opacity-50 pointer-events-none' : ''} transition-opacity`}>
-            <label className='block text-gray-800 font-bold mb-1.5 lg:mb-2 text-[11px] lg:text-xs uppercase tracking-wider'>Password</label>
+            <label className='block text-gray-800 font-bold mb-1.5 lg:mb-2 text-[11px] lg:text-xs uppercase tracking-wider'>Password(test1234)</label>
             <div className='relative'>
               <input
                 name='password'
