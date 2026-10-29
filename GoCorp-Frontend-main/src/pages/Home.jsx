@@ -16,7 +16,7 @@ const Home = () => {
         <img
           src={logo}
           alt="Go-Corp Logo"
-          className="h-12 w-auto object-contain"
+          className="h-16 w-auto object-contain"
         />
       </div>
 
