@@ -1,6 +1,10 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import image from '../assets/image.png';
+import driver from '../assets/driver.png';
+import heroWoman from '../assets/hero-woman.png';
+
 const Home = () => {
   const navigate = useNavigate();
 
@@ -24,12 +28,12 @@ const Home = () => {
           {/* Floating Feature Icons */}
           {/* Car Icon */}
           <div className='absolute -top-2 -left-2 w-12 h-12 bg-white shadow-lg rounded-xl flex items-center justify-center z-20 transform -rotate-12'>
-            <img src='/src/assets/image.png' alt='Car' className='w-8 h-8 object-contain rounded-md' />
+            <img src= {image} alt='Car' className='w-8 h-8 object-contain rounded-md' />
           </div>
 
           {/* Driver Icon */}
           <div className='absolute top-1/4 -right-4 w-12 h-12 bg-white shadow-lg rounded-xl flex items-center justify-center z-20 transform rotate-12'>
-            <img src='/src/assets/driver.png' alt='Driver' className='w-8 h-8 object-contain rounded-md' />
+            <img src={driver} alt='Driver' className='w-8 h-8 object-contain rounded-md' />
           </div>
 
           {/* Support Icon */}
@@ -53,7 +57,7 @@ const Home = () => {
           {/* Main Hero Image */}
           <div className='relative w-48 h-60 bg-gray-50 rounded-4xl overflow-hidden shadow-xl z-10 border-4 border-white'>
             <img
-              src='/src/assets/hero-woman.png'
+              src={herowoman}
               alt='Hero Woman'
               className='w-full h-full object-cover'
             />
