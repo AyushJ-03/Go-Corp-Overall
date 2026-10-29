@@ -12,11 +12,11 @@ const Home = () => {
   return (
     <div className='w-full h-screen bg-white flex flex-col overflow-hidden font-sans'>
       {/* Top Section / Logo space */}
-      <div className="h-20 flex justify-center items-center shrink-0">
+      <div className="h-28 flex justify-center items-center shrink-0">
         <img
           src={logo}
           alt="Go-Corp Logo"
-          className="h-16 w-auto object-contain"
+          className="h-24 w-auto object-contain"
         />
       </div>
 
